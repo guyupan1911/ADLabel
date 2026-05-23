@@ -1,0 +1,31 @@
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+
+        http_proxy: ${http_proxy}
+        https_proxy: ${https_proxy}
+        no_proxy: ${no_proxy}
+    image: adlabel-dev:0.1.0
+    container_name: adlabel-dev
+    hostname: adlabel-dev
+
+    # Only the project repo is mounted. Build artifacts and ccache live
+    # inside the repo (under build/ and .cache/, both gitignored) so they
+    # persist across container restarts via the same bind mount.
+    volumes:
+      - ../:/workspace/ADLabel
+      - /mnt/intel/jupyterhub/guyupan:/workspace/data
+
+    # host networking simplifies local debugging (gRPC, debuggers, future ROS replay).
+    network_mode: host
+
+    # Keep the container alive so dev_into.sh can `docker exec` into it
+    # from multiple terminals without races.
+    command: sleep infinity
+    stdin_open: true
+    tty: true

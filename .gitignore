@@ -1,0 +1,21 @@
+# Build artifacts (live under the repo bind mount inside the dev container)
+build/
+.cache/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local docker-compose overrides
+docker/.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS junk
+.DS_Store
+Thumbs.db
