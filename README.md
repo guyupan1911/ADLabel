@@ -1,2 +1,2 @@
-OpenADLabel
+ADLabel
 
