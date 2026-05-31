@@ -39,8 +39,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libpcl-dev \
       libopencv-dev \
       libboost-all-dev \
-      libprotobuf-dev \
-      protobuf-compiler \
       libgoogle-glog-dev \
       libgflags-dev \
       nlohmann-json3-dev \

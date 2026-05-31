@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package adlabel.mapping;
+
+// 简单的 3D 点消息
+message Point3D {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+// 带时间戳的点云帧
+message PointCloudFrame {
+  uint64 timestamp_ns = 1;
+  string sensor_id = 2;
+  repeated Point3D points = 3;
+}
+
+// 测试用的复合消息
+message HelloWorldData {
+  string message = 1;
+  int32 counter = 2;
+  PointCloudFrame frame = 3;
+}

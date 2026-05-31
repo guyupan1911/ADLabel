@@ -10,3 +10,12 @@ cc_binary(
         "@system_libs//:pcl",
     ],
 )
+
+cc_binary(
+    name = "test_proto",
+    srcs = ["test_proto.cc"],
+    deps = [
+        "//mapping/protos:hello_world_cc_proto",
+        "@system_libs//:glog",
+    ],
+)
