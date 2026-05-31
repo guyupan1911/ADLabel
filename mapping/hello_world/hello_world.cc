@@ -12,9 +12,8 @@
 DEFINE_string(output_dir, "/tmp", "Directory to save output files");
 
 int main(int argc, char** argv) {
-    google::InitGoogleLogging(argv[0]);
     google::ParseCommandLineFlags(&argc, &argv, true);
-    FLAGS_logtostderr = true;
+    google::InitGoogleLogging(argv[0]);
 
     const std::string& out = FLAGS_output_dir;
 
@@ -63,6 +62,7 @@ int main(int argc, char** argv) {
     Eigen::Vector4d p_transformed = T * p;
 
     std::string eigen_path = out + "/hello_world_eigen.txt";
+    LOG(INFO) << "eigen path: " << eigen_path;
     std::ofstream ofs(eigen_path);
     if (!ofs) {
         LOG(ERROR) << "Failed to write: " << eigen_path;
@@ -75,8 +75,8 @@ int main(int argc, char** argv) {
     ofs << "# Transformed point: " << p_transformed.transpose() << "\n";
     ofs.close();
 
-    LOG(INFO) << "Saved Eigen: " << eigen_path;
-    LOG(INFO) << "  input    = " << p.transpose();
+    LOG(ERROR) << "Saved Eigen: " << eigen_path;
+    LOG(WARNING) << "  input    = " << p.transpose();
     LOG(INFO) << "  output   = " << p_transformed.transpose();
 
     return 0;

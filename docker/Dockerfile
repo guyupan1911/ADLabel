@@ -108,3 +108,6 @@ ENV PATH=/usr/lib/ccache:${PATH} \
     CCACHE_DIR=/workspace/ADLabel/.cache/ccache \
     CCACHE_MAXSIZE=5G \
     BAZELISK_HOME=/workspace/ADLabel/.cache/bazelisk
+
+ENV GLOG_alsologtostderr=1
+ENV GLOG_colorlogtostderr=1
