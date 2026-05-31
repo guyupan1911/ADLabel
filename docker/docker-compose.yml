@@ -19,7 +19,7 @@ services:
     # persist across container restarts via the same bind mount.
     volumes:
       - ../:/workspace/ADLabel
-      - /mnt/intel/jupyterhub/guyupan:/workspace/data
+      - /mnt/intel/jupyterhub/guyupan/cpu:/workspace/data
 
     # host networking simplifies local debugging (gRPC, debuggers, future ROS replay).
     network_mode: host

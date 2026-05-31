@@ -1,0 +1,7 @@
+# .bazelrc
+# 将 Bazel 输出目录放在项目内以便容器重启后保留缓存
+startup --output_user_root=/workspace/ADLabel/.cache/bazel
+
+# 禁用 repo contents cache 避免在主仓库内部缓存导致的问题
+build --repository_cache=/workspace/ADLabel/.cache/bazel/repository_cache
+common --repo_contents_cache=

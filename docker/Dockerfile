@@ -64,6 +64,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       tree \
       sudo \
       openssh-client \
+      fzf \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- Python tools (rosbag -> MCAP preprocessing, pre-commit, ...) ----
@@ -85,6 +86,18 @@ RUN groupadd --gid ${USER_GID} ${USER_NAME} \
     && echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USER_NAME} \
     && chmod 0440 /etc/sudoers.d/${USER_NAME}
 
+# ---- Bazel / Bazelisk ----
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-17-jdk \
+    unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+ARG BAZELISK_VERSION=v1.22.1
+RUN wget -O /usr/local/bin/bazelisk \
+    https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64 \
+  && chmod +x /usr/local/bin/bazelisk \
+  && ln -s /usr/local/bin/bazelisk /usr/local/bin/bazel
+
 USER ${USER_NAME}
 WORKDIR /workspace/ADLabel
 
@@ -93,4 +106,5 @@ WORKDIR /workspace/ADLabel
 # restarts and is visible from the host.
 ENV PATH=/usr/lib/ccache:${PATH} \
     CCACHE_DIR=/workspace/ADLabel/.cache/ccache \
-    CCACHE_MAXSIZE=5G
+    CCACHE_MAXSIZE=5G \
+    BAZELISK_HOME=/workspace/ADLabel/.cache/bazelisk
