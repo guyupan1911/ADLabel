@@ -4,3 +4,16 @@ module(
 )
 
 bazel_dep(name = "rules_cc", version = "0.1.0")
+
+# Wrap system libraries installed via apt in the Docker image.
+# path="/usr" means all targets in system_libs.BUILD are relative to /usr.
+new_local_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:local.bzl",
+    "new_local_repository",
+)
+
+new_local_repository(
+    name = "system_libs",
+    path = "/usr",
+    build_file = "//third_party:system_libs.BUILD",
+)
