@@ -42,6 +42,21 @@ cc_library(
 )
 
 # ---------------------------------------------------------------------------
+# TBB (Threading Building Blocks)
+# Required by GTSAM (built with GTSAM_WITH_TBB=ON by default).
+# ---------------------------------------------------------------------------
+cc_library(
+    name = "tbb",
+    hdrs = glob([
+        "include/tbb/**/*.h",
+        "include/oneapi/**/*.h",
+    ]),
+    includes = ["include"],
+    linkopts = ["-ltbb"],
+    visibility = ["//visibility:public"],
+)
+
+# ---------------------------------------------------------------------------
 # OpenCV 4.5
 # Headers live under /usr/include/opencv4/
 # Shared libs are in /usr/lib/x86_64-linux-gnu/ — let the linker find them.

@@ -46,6 +46,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libtbb-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# ---- GTSAM (build from source, no apt package for Ubuntu 22.04) ----
+ARG GTSAM_VERSION=4.2.0
+RUN git clone --depth 1 --branch ${GTSAM_VERSION} \
+      https://github.com/borglab/gtsam.git /tmp/gtsam \
+    && cmake -S /tmp/gtsam -B /tmp/gtsam/build \
+        -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DGTSAM_BUILD_TESTS=OFF \
+        -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+        -DGTSAM_USE_SYSTEM_EIGEN=ON \
+        -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF \
+    && cmake --build /tmp/gtsam/build --target install \
+    && rm -rf /tmp/gtsam
+
 # ---- Developer tooling ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
       gdb \

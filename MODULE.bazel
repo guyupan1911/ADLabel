@@ -19,3 +19,10 @@ new_local_repository(
     path = "/usr",
     build_file = "//third_party:system_libs.BUILD",
 )
+
+# GTSAM installs to /usr/local (built from source, not via apt).
+new_local_repository(
+    name = "local_libs",
+    path = "/usr/local",
+    build_file = "//third_party:local_libs.BUILD",
+)

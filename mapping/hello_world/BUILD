@@ -19,3 +19,12 @@ cc_binary(
         "@system_libs//:glog",
     ],
 )
+
+cc_binary(
+    name = "test_gtsam",
+    srcs = ["test_gtsam.cc"],
+    deps = [
+        "@local_libs//:gtsam",
+        "@system_libs//:glog",
+    ],
+)

@@ -30,13 +30,11 @@ The container stays running in the background after `dev_start.sh`. Run
 **Core C++ libraries** (apt, Ubuntu 22.04 versions):
 - Eigen 3.4, Boost 1.74
 - PCL 1.12, OpenCV 4.5
-- Protobuf 3.12, glog, gflags, nlohmann_json
+- glog, gflags, nlohmann_json
 - Ceres 2.0, TBB
 
-GTSAM is intentionally **not** in the image yet — it'll be added when the
-LIO operator lands (Stage 1 later half). Ubuntu 22.04 has no
-`libgtsam-dev` package; we'll add it via the borglab PPA or build from
-source at that point.
+**Core C++ libraries** (built from source):
+- GTSAM 4.2.0 — installed to `/usr/local`, built with `GTSAM_USE_SYSTEM_EIGEN=ON`
 
 **Python tools** (system pip):
 - `rosbags` — read ROS1/ROS2 bags without ROS installed
