@@ -9,7 +9,7 @@ cc_binary(
       "pointcloud_stitch_cli.cc",
     ],
     deps = [
-      "//mapping/common:file",
+      "//mapping/common:local_data_reader",
       "//mapping/common:pcl_types",
       "//mapping/common:pose3d",
       "//mapping/protos:frame_cc_proto",

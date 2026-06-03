@@ -41,3 +41,20 @@ cc_library(
     "@system_libs//:eigen",
   ],
 )
+
+cc_library(
+  name = "local_data_reader",
+  hdrs = [
+    "local_data_reader.h",
+  ],
+  srcs = [
+    "local_data_reader.cc",
+  ],
+  deps = [
+    ":file",
+    ":pcl_types",
+    "@system_libs//:glog",
+    "@system_libs//:opencv",
+    "@system_libs//:pcl",
+  ],
+)

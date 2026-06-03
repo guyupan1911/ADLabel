@@ -8,14 +8,14 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/voxel_grid.h>
 
-#include "mapping/common/file.h"
+#include "mapping/common/local_data_reader.h"
 #include "mapping/common/pcl_types.h"
 #include "mapping/common/pose3d.h"
 #include "mapping/protos/frame.pb.h"
 
 DEFINE_string(lidar_metadata,
-    "data/plus_mapping/20260503T173334_pdb-l4e-c0002_016_40to60/metadata/"
-    "lidar/em4_front_lidar.meta", "path to lidar metadata");
+    "20260503T173334_pdb-l4e-c0002_016_40to60/metadata/"
+    "lidar/em4_front_lidar.meta", "path to lidar metadata, relative to data_root or absolute");
 DEFINE_string(data_root, "data/plus_mapping", "root directory for sensor data");
 DEFINE_string(output_dir, "data/plus_mapping/pointcloud_stitch",
     "directory to save stitched cloud.pcd");
@@ -51,7 +51,8 @@ int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
   google::ParseCommandLineFlags(&argc, &argv, true);
 
-  auto lidar_frames = ReadMetaFile<Frame>(FLAGS_lidar_metadata);
+  LocalDataReader data_reader(FLAGS_data_root);
+  auto lidar_frames = data_reader.ReadMetaData<Frame>(FLAGS_lidar_metadata);
   LOG(INFO) << "lidar_frames size: " << lidar_frames.size();
 
   PointCloudXYZIRT::Ptr stitched_cloud(new PointCloudXYZIRT);
@@ -73,14 +74,12 @@ int main(int argc, char** argv) {
       continue;
     }
 
-    const std::string pcd_path = FLAGS_data_root + "/" + frame.cloud_uri();
-
     PointCloudXYZIRT::Ptr cloud(new PointCloudXYZIRT);
-    if (pcl::io::loadPCDFile<PointXYZIRT>(pcd_path, *cloud) < 0) {
-      LOG(ERROR) << "failed to load pcd: " << pcd_path;
+    if (!data_reader.ReadPointCloud(frame.cloud_uri(), cloud)) {
+      LOG(ERROR) << "failed to load pcd: " << frame.cloud_uri();
       continue;
     }
-    LOG(INFO) << "loaded " << cloud->size() << " points from " << pcd_path;
+    LOG(INFO) << "loaded " << cloud->size() << " points from " << frame.cloud_uri();
 
     PointCloudXYZIRT::Ptr downsampled = DownsampleCloud(cloud, FLAGS_frame_leaf_size);
 
