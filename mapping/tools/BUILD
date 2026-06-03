@@ -11,6 +11,7 @@ cc_binary(
     deps = [
       "//mapping/common:file",
       "//mapping/common:pcl_types",
+      "//mapping/common:pose3d",
       "//mapping/protos:frame_cc_proto",
       "@system_libs//:gflags",
       "@system_libs//:glog",

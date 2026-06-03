@@ -27,3 +27,17 @@ cc_library(
     "@system_libs//:pcl",
   ]
 )
+
+cc_library(
+  name = "pose3d",
+  hdrs = [
+    "pose3d.h",
+  ],
+  srcs = [
+    "pose3d.cc",
+  ],
+  deps = [
+    "//mapping/protos:pose_cc_proto",
+    "@system_libs//:eigen",
+  ],
+)
