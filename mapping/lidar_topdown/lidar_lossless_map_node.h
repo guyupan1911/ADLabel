@@ -20,12 +20,14 @@ constexpr uint16_t kEmptyAltitudeValue = 0;
 class LidarLosslessMapNode {
   public:
     enum class IntensityMappingMode { kLogarithmic, kPassThrough };
+    enum class IntensityAggregationMode { kMax, kMean };
 
     LidarLosslessMapNode() = default;
     ~LidarLosslessMapNode() = default;
 
     void Init(const GridFrame& frame,
-              IntensityMappingMode intensity_mapping = IntensityMappingMode::kLogarithmic);
+              IntensityMappingMode intensity_mapping = IntensityMappingMode::kLogarithmic,
+              IntensityAggregationMode intensity_aggregation = IntensityAggregationMode::kMax);
     void Reset();
 
     const GridFrame& GetFrame() const { return frame_; }
@@ -52,6 +54,7 @@ class LidarLosslessMapNode {
   private:
     GridFrame frame_;
     IntensityMappingMode intensity_mapping_ = IntensityMappingMode::kLogarithmic;
+    IntensityAggregationMode intensity_aggregation_ = IntensityAggregationMode::kMax;
     DenseLosslessMapMatrix matrix_;
 };
 

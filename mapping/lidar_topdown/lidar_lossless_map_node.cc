@@ -29,9 +29,11 @@ unsigned char ApplyIntensityMapping(
 }  // namespace
 
 void LidarLosslessMapNode::Init(const GridFrame& frame,
-                                IntensityMappingMode intensity_mapping) {
+                                IntensityMappingMode intensity_mapping,
+                                IntensityAggregationMode intensity_aggregation) {
     frame_ = frame;
     intensity_mapping_ = intensity_mapping;
+    intensity_aggregation_ = intensity_aggregation;
     matrix_.Init(frame.rows, frame.cols);
 }
 
@@ -53,7 +55,12 @@ bool LidarLosslessMapNode::SetValue(const Eigen::Vector3d& world_xyz,
 
     const unsigned char mapped_intensity =
             ApplyIntensityMapping(intensity, intensity_mapping_);
-    matrix_.GetOrCreate(row, col).AddSample(static_cast<float>(world_xyz.z()), mapped_intensity);
+    LosslessMapCell& cell = matrix_.GetOrCreate(row, col);
+    if (intensity_aggregation_ == IntensityAggregationMode::kMean) {
+        cell.AddSampleMean(static_cast<float>(world_xyz.z()), mapped_intensity);
+    } else {
+        cell.AddSampleMax(static_cast<float>(world_xyz.z()), mapped_intensity);
+    }
     return true;
 }
 

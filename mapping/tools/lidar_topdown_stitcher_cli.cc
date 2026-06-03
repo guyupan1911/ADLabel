@@ -25,6 +25,7 @@ DEFINE_double(resolution, 0.1, "topdown image resolution, meters per pixel");
 DEFINE_double(margin_meters, 10.0, "extra margin around trajectory bounds");
 DEFINE_uint64(min_samples, 1, "minimum samples per cell to render");
 DEFINE_bool(use_log_intensity, true, "use logarithmic intensity mapping");
+DEFINE_string(intensity_aggregation, "max", "intensity aggregation in each cell: max or mean");
 
 namespace adlabel {
 namespace mapping {
@@ -98,6 +99,19 @@ bool IsProcessableLidarFrame(const Frame& frame) {
     return true;
 }
 
+LidarLosslessMapNode::IntensityAggregationMode ParseIntensityAggregationMode(
+        const std::string& mode) {
+    if (mode == "max") {
+        return LidarLosslessMapNode::IntensityAggregationMode::kMax;
+    }
+    if (mode == "mean") {
+        return LidarLosslessMapNode::IntensityAggregationMode::kMean;
+    }
+    LOG(FATAL) << "unsupported --intensity_aggregation=" << mode
+               << ", expected max or mean";
+    return LidarLosslessMapNode::IntensityAggregationMode::kMax;
+}
+
 void AccumulateFrameToNode(const Frame& frame,
                            const FrameData& lidar_frame_data,
                            LidarLosslessMapNode* node) {
@@ -145,9 +159,11 @@ int Run() {
     const auto intensity_mapping = FLAGS_use_log_intensity
             ? LidarLosslessMapNode::IntensityMappingMode::kLogarithmic
             : LidarLosslessMapNode::IntensityMappingMode::kPassThrough;
+    const auto intensity_aggregation =
+            ParseIntensityAggregationMode(FLAGS_intensity_aggregation);
 
     LidarLosslessMapNode node;
-    node.Init(grid_frame, intensity_mapping);
+    node.Init(grid_frame, intensity_mapping, intensity_aggregation);
 
     size_t processed_frames = 0;
     for (const auto& frame : frames) {
