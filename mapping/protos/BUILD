@@ -6,3 +6,22 @@ proto_gen(
     name = "hello_world",
     srcs = ["hello_world.proto"],
 )
+
+proto_gen(
+    name = "pose",
+    srcs = ["pose.proto"],
+)
+
+proto_gen(
+    name = "camera_calibration",
+    srcs = ["camera_calibration.proto"],
+)
+
+proto_gen(
+    name = "frame",
+    srcs = ["frame.proto"],
+    deps = [
+        ":pose",
+        ":camera_calibration",
+    ],
+)

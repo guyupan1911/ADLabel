@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package adlabel.mapping;
+
+message Pose3DMessage {
+  optional double x = 1;
+  optional double y = 2;
+  optional double z = 3;
+  // Below is quaternion represent for rotation matrix
+  optional double qw = 4;
+  optional double qx = 5;
+  optional double qy = 6;
+  optional double qz = 7;
+}

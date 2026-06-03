@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+enum CameraType {
+  CAMERA_TYPE_UNKNOWN = 0;
+  CAMERA_TYPE_PINHOLE = 1;
+  CAMERA_TYPE_FISHEYE = 2;
+}
+
+message CameraCalibration {
+  optional CameraType camera_type = 1;
+  // camera intrinsics, either stored as a 4 vector (fx, fy, cx, cy)
+  // or a 3x3 row major matrix, in case to handle skew factor
+  repeated double intrinsics = 2;
+  repeated double distortion_coefficients = 3;
+  optional uint32 width = 4;
+  optional uint32 height = 5;
+}

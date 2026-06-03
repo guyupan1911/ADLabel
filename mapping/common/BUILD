@@ -1,0 +1,29 @@
+package(default_visibility = ["//visibility:public"])
+
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+  name = "file",
+  hdrs = [
+    "file.h"
+  ],
+  deps = [
+    "@system_libs//:glog",
+  ]
+)
+
+cc_library(
+  name = "pcl_types",
+  hdrs = [
+    "pcl_types.h"
+  ],
+  # PCL only precompiles its template algorithms (VoxelGrid, PassThrough,
+  # PCLBase, ...) for the built-in point types. Using a custom point type
+  # like PointXYZIRT requires PCL_NO_PRECOMPILE so the headers pull in their
+  # impl/*.hpp definitions and instantiate the templates for our type.
+  # `defines` propagates to every target that depends on :pcl_types.
+  defines = ["PCL_NO_PRECOMPILE"],
+  deps = [
+    "@system_libs//:pcl",
+  ]
+)
