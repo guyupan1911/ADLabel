@@ -19,3 +19,21 @@ cc_binary(
       "@system_libs//:pcl",
     ],
 )
+
+cc_binary(
+    name = "lidar_topdown_stitcher_cli",
+    srcs = [
+      "lidar_topdown_stitcher_cli.cc",
+    ],
+    deps = [
+      "//mapping/common:local_data_reader",
+      "//mapping/common:pose3d",
+      "//mapping/lidar_topdown:lidar_topdown",
+      "//mapping/mapping_utils:stitch_utils",
+      "//mapping/protos:frame_cc_proto",
+      "@system_libs//:eigen",
+      "@system_libs//:gflags",
+      "@system_libs//:glog",
+      "@system_libs//:opencv",
+    ],
+)
