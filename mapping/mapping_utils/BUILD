@@ -14,6 +14,17 @@ cc_library(
 )
 
 cc_library(
+  name = "simple_pose3d_interpolator",
+  hdrs = [
+    "simple_pose3d_interpolator.h",
+  ],
+  deps = [
+    "//mapping/common:pose3d",
+    "@system_libs//:glog",
+  ],
+)
+
+cc_library(
   name = "stitch_utils",
   hdrs = [
     "stitch_utils.h",
