@@ -11,6 +11,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pose3d.h"
@@ -24,8 +25,14 @@ DEFINE_string(output_dir, "", "directory to save intensity.png");
 DEFINE_double(resolution, 0.1, "topdown image resolution, meters per pixel");
 DEFINE_double(margin_meters, 10.0, "extra margin around trajectory bounds");
 DEFINE_uint64(min_samples, 1, "minimum samples per cell to render");
-DEFINE_bool(use_log_intensity, true, "use logarithmic intensity mapping");
+DEFINE_bool(use_log_intensity, false, "use logarithmic intensity mapping before image enhancement");
 DEFINE_string(intensity_aggregation, "max", "intensity aggregation in each cell: max or mean");
+DEFINE_bool(apply_percentile_stretch, true, "apply percentile stretch to the intensity image");
+DEFINE_double(percentile_low, 1.0, "low percentile used by intensity stretch");
+DEFINE_double(percentile_high, 99.0, "high percentile used by intensity stretch");
+DEFINE_bool(apply_clahe, true, "apply CLAHE after percentile stretch");
+DEFINE_double(clahe_clip_limit, 2.0, "CLAHE clip limit");
+DEFINE_int32(clahe_tile_size, 8, "CLAHE tile grid width and height");
 
 namespace adlabel {
 namespace mapping {
@@ -112,6 +119,109 @@ LidarLosslessMapNode::IntensityAggregationMode ParseIntensityAggregationMode(
     return LidarLosslessMapNode::IntensityAggregationMode::kMax;
 }
 
+double GetPercentile(std::vector<unsigned char> values, double percentile) {
+    CHECK(!values.empty());
+    std::sort(values.begin(), values.end());
+
+    const double normalized = std::max(0.0, std::min(100.0, percentile)) / 100.0;
+    const double index = normalized * static_cast<double>(values.size() - 1);
+    const size_t low_index = static_cast<size_t>(std::floor(index));
+    const size_t high_index = static_cast<size_t>(std::ceil(index));
+    const double alpha = index - static_cast<double>(low_index);
+    return static_cast<double>(values[low_index]) * (1.0 - alpha) +
+           static_cast<double>(values[high_index]) * alpha;
+}
+
+cv::Mat BuildValidIntensityMask(const LidarLosslessMapNode& node, size_t min_samples) {
+    const GridFrame& frame = node.GetFrame();
+    cv::Mat mask = cv::Mat::zeros(
+            static_cast<int>(frame.rows), static_cast<int>(frame.cols), CV_8UC1);
+    node.GetMatrix().ForEachOccupied(
+            [&](unsigned int row, unsigned int col, const LosslessMapCell& cell) {
+                if (cell.GetCount() < min_samples) return;
+                mask.at<unsigned char>(static_cast<int>(row), static_cast<int>(col)) = 255;
+            });
+    return mask;
+}
+
+cv::Mat PercentileStretchIntensity(const LidarLosslessMapNode& node,
+                                   const cv::Mat& image,
+                                   size_t min_samples,
+                                   double low_percentile,
+                                   double high_percentile) {
+    CHECK_EQ(image.type(), CV_8UC1);
+
+    std::vector<unsigned char> values;
+    node.GetMatrix().ForEachOccupied(
+            [&](unsigned int, unsigned int, const LosslessMapCell& cell) {
+                if (cell.GetCount() < min_samples) return;
+                values.push_back(cell.GetValue());
+            });
+
+    if (values.empty()) {
+        LOG(WARNING) << "skip percentile stretch because no valid intensity cells exist";
+        return image.clone();
+    }
+
+    const double low_value = GetPercentile(values, low_percentile);
+    const double high_value = GetPercentile(values, high_percentile);
+    if (high_value <= low_value) {
+        LOG(WARNING) << "skip percentile stretch because percentile range is invalid: "
+                     << low_value << " to " << high_value;
+        return image.clone();
+    }
+
+    cv::Mat stretched = cv::Mat::zeros(image.rows, image.cols, CV_8UC1);
+    node.GetMatrix().ForEachOccupied(
+            [&](unsigned int row, unsigned int col, const LosslessMapCell& cell) {
+                if (cell.GetCount() < min_samples) return;
+                const double value = static_cast<double>(cell.GetValue());
+                const double normalized = (value - low_value) / (high_value - low_value);
+                const double scaled = std::max(0.0, std::min(255.0, normalized * 255.0));
+                stretched.at<unsigned char>(static_cast<int>(row), static_cast<int>(col)) =
+                        static_cast<unsigned char>(std::lround(scaled));
+            });
+
+    LOG(INFO) << "applied percentile stretch: p" << low_percentile << "=" << low_value
+              << ", p" << high_percentile << "=" << high_value
+              << ", valid_cells=" << values.size();
+    return stretched;
+}
+
+cv::Mat ApplyClahe(const cv::Mat& image, const cv::Mat& valid_mask) {
+    CHECK_EQ(image.type(), CV_8UC1);
+    CHECK_EQ(valid_mask.type(), CV_8UC1);
+    CHECK_EQ(image.rows, valid_mask.rows);
+    CHECK_EQ(image.cols, valid_mask.cols);
+
+    cv::Mat enhanced;
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(
+            FLAGS_clahe_clip_limit, cv::Size(FLAGS_clahe_tile_size, FLAGS_clahe_tile_size));
+    clahe->apply(image, enhanced);
+    enhanced.setTo(0, valid_mask == 0);
+    return enhanced;
+}
+
+cv::Mat EnhanceIntensityImage(const LidarLosslessMapNode& node,
+                              const cv::Mat& image,
+                              size_t min_samples) {
+    cv::Mat enhanced = image.clone();
+    if (FLAGS_apply_percentile_stretch) {
+        enhanced = PercentileStretchIntensity(node,
+                                              enhanced,
+                                              min_samples,
+                                              FLAGS_percentile_low,
+                                              FLAGS_percentile_high);
+    }
+    if (FLAGS_apply_clahe) {
+        const cv::Mat valid_mask = BuildValidIntensityMask(node, min_samples);
+        enhanced = ApplyClahe(enhanced, valid_mask);
+        LOG(INFO) << "applied CLAHE: clip_limit=" << FLAGS_clahe_clip_limit
+                  << ", tile_size=" << FLAGS_clahe_tile_size;
+    }
+    return enhanced;
+}
+
 void AccumulateFrameToNode(const Frame& frame,
                            const FrameData& lidar_frame_data,
                            LidarLosslessMapNode* node) {
@@ -135,6 +245,14 @@ int Run() {
     CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
     CHECK_GT(FLAGS_resolution, 0.0) << "--resolution must be positive";
     CHECK_GE(FLAGS_margin_meters, 0.0) << "--margin_meters must be non-negative";
+    CHECK_GE(FLAGS_percentile_low, 0.0) << "--percentile_low must be in [0, 100]";
+    CHECK_LE(FLAGS_percentile_low, 100.0) << "--percentile_low must be in [0, 100]";
+    CHECK_GE(FLAGS_percentile_high, 0.0) << "--percentile_high must be in [0, 100]";
+    CHECK_LE(FLAGS_percentile_high, 100.0) << "--percentile_high must be in [0, 100]";
+    CHECK_LT(FLAGS_percentile_low, FLAGS_percentile_high)
+            << "--percentile_low must be less than --percentile_high";
+    CHECK_GT(FLAGS_clahe_clip_limit, 0.0) << "--clahe_clip_limit must be positive";
+    CHECK_GT(FLAGS_clahe_tile_size, 0) << "--clahe_tile_size must be positive";
 
     auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
     std::vector<Frame> frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
@@ -188,6 +306,9 @@ int Run() {
 
     cv::Mat intensity_image;
     node.GetIntensityImage(&intensity_image, static_cast<size_t>(FLAGS_min_samples));
+    intensity_image = EnhanceIntensityImage(node,
+                                            intensity_image,
+                                            static_cast<size_t>(FLAGS_min_samples));
 
     const std::filesystem::path output_dir(FLAGS_output_dir);
     std::error_code error;
