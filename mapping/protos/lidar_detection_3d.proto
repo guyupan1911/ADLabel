@@ -1,0 +1,35 @@
+syntax = "proto2";
+
+package adlabel.mapping;
+
+import "mapping/protos/pose.proto";
+
+message Size3D {
+  optional double length = 1;
+  optional double width = 2;
+  optional double height = 3;
+}
+
+message BoundingBox3D {
+  optional Pose3DMessage center = 1; // in imu coordinate
+  optional Size3D size = 2;
+  optional double yaw = 3;
+}
+
+message LidarDetectionObject {
+  enum ObjectType {
+    UNKNOWN = 0;
+    CAR = 1;
+    TRUCK = 2;
+    BUS = 3;
+    CYCLIST = 4;
+    PEDESTRIAN = 5;
+    CONE = 6;
+    BARRIER = 7;
+  }
+
+  optional ObjectType type = 1;
+  optional string type_name = 2;
+
+  optional BoundingBox3D box3d = 3;
+}

@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,7 @@
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pcl_types.h"
 #include "mapping/common/pose3d.h"
+#include "mapping/mapping_utils/stitch_utils.h"
 #include "mapping/protos/frame.pb.h"
 
 DEFINE_string(lidar_metadata,
@@ -51,8 +53,8 @@ int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
   google::ParseCommandLineFlags(&argc, &argv, true);
 
-  LocalDataReader data_reader(FLAGS_data_root);
-  auto lidar_frames = data_reader.ReadMetaData<Frame>(FLAGS_lidar_metadata);
+  auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
+  auto lidar_frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
   LOG(INFO) << "lidar_frames size: " << lidar_frames.size();
 
   PointCloudXYZIRT::Ptr stitched_cloud(new PointCloudXYZIRT);
@@ -74,12 +76,14 @@ int main(int argc, char** argv) {
       continue;
     }
 
-    PointCloudXYZIRT::Ptr cloud(new PointCloudXYZIRT);
-    if (!data_reader.ReadPointCloud(frame.cloud_uri(), cloud)) {
-      LOG(ERROR) << "failed to load pcd: " << frame.cloud_uri();
+    FrameData lidar_frame_data;
+    if (!GenerateLidarFrameData(frame, &lidar_frame_data, data_reader)) {
+      LOG(ERROR) << "failed to generate lidar frame data: " << frame.fid();
       continue;
     }
-    LOG(INFO) << "loaded " << cloud->size() << " points from " << frame.cloud_uri();
+    PointCloudXYZIRT::Ptr cloud = lidar_frame_data.raw_cloud;
+    LOG(INFO) << "loaded filtered cloud " << cloud->size()
+              << " points from " << frame.cloud_uri();
 
     PointCloudXYZIRT::Ptr downsampled = DownsampleCloud(cloud, FLAGS_frame_leaf_size);
 
@@ -90,9 +94,8 @@ int main(int argc, char** argv) {
       LOG(INFO) << "use frame " << frame.fid() << " as stitch origin";
     }
 
-    const Pose3D sensor_to_imu(frame.sensor_to_imu_extrinsic());
     const Eigen::Affine3d lidar_to_first_imu =
-        first_imu_pose_inv * lio_pose.GetAffine3D() * sensor_to_imu.GetAffine3D();
+        first_imu_pose_inv * lio_pose.GetAffine3D() * lidar_frame_data.T_sensor_to_imu;
 
     PointCloudXYZIRT::Ptr transformed(new PointCloudXYZIRT);
     pcl::transformPointCloud(*downsampled, *transformed, lidar_to_first_imu.cast<float>());
@@ -100,7 +103,7 @@ int main(int argc, char** argv) {
     ++loaded_frame_count;
 
     LOG(INFO) << "frame " << frame.fid()
-              << " raw: " << cloud->size()
+              << " filtered: " << cloud->size()
               << " downsampled: " << downsampled->size()
               << " stitched total: " << stitched_cloud->size();
   }

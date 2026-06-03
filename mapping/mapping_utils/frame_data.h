@@ -3,15 +3,14 @@
 #include <vector>
 
 #include <Eigen/Dense>
-#include <pcl/pointcloud.h>
 
-#include "pcl/pcl_types.h"
+#include "mapping/common/pcl_types.h"
 
 namespace adlabel {
 namespace mapping {
 
 struct FrameData {
-  using Cloud = pcl::PointCloud<PointXYZIRT>;
+  using Cloud = PointCloudXYZIRT;
 
   Cloud::Ptr raw_cloud;
 
@@ -21,5 +20,5 @@ struct FrameData {
   Eigen::Affine3d T_sensor_to_imu;
 };
 
-}
-}
+}  // namespace mapping
+}  // namespace adlabel

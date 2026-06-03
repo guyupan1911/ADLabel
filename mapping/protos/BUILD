@@ -25,3 +25,11 @@ proto_gen(
         ":camera_calibration",
     ],
 )
+
+proto_gen(
+    name = "lidar_detection_3d",
+    srcs = ["lidar_detection_3d.proto"],
+    deps = [
+        ":pose",
+    ],
+)

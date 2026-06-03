@@ -2,8 +2,8 @@
 
 #include <memory>
 
+#include "mapping/common/local_data_reader.h"
 #include "mapping/mapping_utils/frame_data.h"
-#include "raw_data_reader/local_data_reader.h"
 #include "mapping/protos/frame.pb.h"
 
 namespace adlabel {
@@ -13,5 +13,5 @@ bool GenerateLidarFrameData(
     const Frame& frame, FrameData* lidar_frame_data,
     const std::shared_ptr<LocalDataReader>& local_data_reader);
 
-}
-}
+}  // namespace mapping
+}  // namespace adlabel

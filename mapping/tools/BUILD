@@ -12,6 +12,7 @@ cc_binary(
       "//mapping/common:local_data_reader",
       "//mapping/common:pcl_types",
       "//mapping/common:pose3d",
+      "//mapping/mapping_utils:stitch_utils",
       "//mapping/protos:frame_cc_proto",
       "@system_libs//:gflags",
       "@system_libs//:glog",
