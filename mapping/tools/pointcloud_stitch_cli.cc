@@ -4,7 +4,7 @@
 #include <gflags/gflags.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/voxel_grid.h>
-// #include <pcl/filters/pass_through.h>
+#include <pcl/filters/passthrough.h>
 
 #include "mapping/common/file.h"
 #include "mapping/common/pcl_types.h"
@@ -34,21 +34,21 @@ int main(int argc, char** argv) {
     LOG(INFO) << "loaded " << cloud->size() << " points from " << pcd_path;
 
     // example: passthrough filter to remove ground points below -2m
-    // pcl::PassThrough<PointXYZIRT> pass;
-    // pass.setInputCloud(cloud);
-    // pass.setFilterFieldName("z");
-    // pass.setFilterLimits(-2.0, 50.0);
-    // PointCloudXYZIRT::Ptr filtered(new PointCloudXYZIRT);
-    // pass.filter(*filtered);
+    pcl::PassThrough<PointXYZIRT> pass;
+    pass.setInputCloud(cloud);
+    pass.setFilterFieldName("z");
+    pass.setFilterLimits(-2.0, 50.0);
+    PointCloudXYZIRT::Ptr filtered(new PointCloudXYZIRT);
+    pass.filter(*filtered);
 
     // example: voxel grid downsample at 10cm
     pcl::VoxelGrid<PointXYZIRT> vg;
-    vg.setInputCloud(cloud);
+    vg.setInputCloud(filtered);
     vg.setLeafSize(0.1f, 0.1f, 0.1f);
     PointCloudXYZIRT::Ptr downsampled(new PointCloudXYZIRT);
     vg.filter(*downsampled);
 
-    LOG(INFO) << "after filter: " << cloud->size()
+    LOG(INFO) << "after filter: " << filtered->size()
               << " after voxel: " << downsampled->size();
   }
 
