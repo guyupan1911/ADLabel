@@ -26,3 +26,14 @@ cc_binary(
         "@local_libs//:gtsam",
     ],
 )
+
+cc_binary(
+    name = "imu_gps_kitti_example",
+    srcs = [
+        "imu_gps_kitti_example.cc",
+    ],
+    deps = [
+        "@system_libs//:glog",
+        "@local_libs//:gtsam",
+    ],
+)

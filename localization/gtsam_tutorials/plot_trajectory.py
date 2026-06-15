@@ -42,6 +42,7 @@ def load_trajectories(path):
                     "key": int(row["key"]),
                     "x": float(row["x"]),
                     "y": float(row["y"]),
+                    "z": float(row["z"]) if row.get("z") else 0.0,
                     "theta": float(row["theta"]) if row["theta"] else None,
                     "cov_xx": parse_optional_float(row.get("cov_xx")),
                     "cov_xy": parse_optional_float(row.get("cov_xy")),
@@ -114,11 +115,21 @@ def style_for_name(name):
         }
     if normalized == "result" or normalized == "optimized":
         return {
+            "color": "green",
             "linestyle": "-",
-            "marker": "x",
-            "markersize": 7,
+            "marker": None,
+            "markersize": 0,
             "linewidth": 1.8,
             "zorder": 5,
+        }
+    if normalized == "gps":
+        return {
+            "color": "red",
+            "linestyle": "-",
+            "marker": None,
+            "markersize": 0,
+            "linewidth": 1.4,
+            "zorder": 3,
         }
     return {
         "linestyle": "-",
@@ -152,7 +163,60 @@ def plot_trajectory(name, points, covariance_sigma):
             length_includes_head=True,
             alpha=0.8,
         )
-        plt.text(point["x"], point["y"], str(point["key"]), color=color, fontsize=8)
+
+
+def rmse(values):
+    if not values:
+        return 0.0
+    return math.sqrt(sum(value * value for value in values) / len(values))
+
+
+def component_errors(trajectories):
+    optimized = trajectories.get("optimized") or trajectories.get("result")
+    gps = trajectories.get("gps")
+    if not optimized or not gps:
+        return None
+
+    gps_by_key = {point["key"]: point for point in gps}
+    keys = []
+    errors = {"x": [], "y": [], "z": []}
+    for point in optimized:
+        ref = gps_by_key.get(point["key"])
+        if ref is None:
+            continue
+        keys.append(point["key"])
+        errors["x"].append(point["x"] - ref["x"])
+        errors["y"].append(point["y"] - ref["y"])
+        errors["z"].append(point["z"] - ref["z"])
+
+    if not keys:
+        return None
+    return keys, errors
+
+
+def plot_error_curves(trajectories):
+    errors_data = component_errors(trajectories)
+    if errors_data is None:
+        return False
+
+    keys, errors = errors_data
+    colors = {"x": "#2f6fdb", "y": "#d98c00", "z": "#6f42c1"}
+    for axis_name in ("x", "y", "z"):
+        values = errors[axis_name]
+        plt.plot(
+            keys,
+            values,
+            color=colors[axis_name],
+            linewidth=1.4,
+            label=f"{axis_name} error, RMSE={rmse(values):.3f} m",
+        )
+
+    plt.axhline(0.0, color="black", linewidth=0.8, alpha=0.5)
+    plt.xlabel("key")
+    plt.ylabel("error (m)")
+    plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
+    plt.legend()
+    return True
 
 
 def main():
@@ -160,7 +224,13 @@ def main():
     trajectories = load_trajectories(args.csv)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
-    plt.figure(figsize=(8, 6))
+    has_errors = component_errors(trajectories) is not None
+    if has_errors:
+        plt.figure(figsize=(16, 12))
+        plt.subplot(2, 1, 1)
+    else:
+        plt.figure(figsize=(14, 10))
+
     for name, points in trajectories.items():
         plot_trajectory(name, points, args.covariance_sigma)
 
@@ -170,8 +240,13 @@ def main():
     plt.axis("equal")
     plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
     plt.legend()
+
+    if has_errors:
+        plt.subplot(2, 1, 2)
+        plot_error_curves(trajectories)
+
     plt.tight_layout()
-    plt.savefig(args.out, dpi=160)
+    plt.savefig(args.out, dpi=240)
 
 
 if __name__ == "__main__":
