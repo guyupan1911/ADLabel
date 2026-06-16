@@ -2,10 +2,9 @@
 
 load("@rules_proto//proto:defs.bzl", "proto_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
-load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
 
 def proto_gen(name, srcs, deps = [], visibility = ["//visibility:public"]):
-    """Generate proto_library, cc_proto_library, and py_proto_library.
+    """Generate proto_library and cc_proto_library.
 
     Args:
         name: Base name (without suffix)
@@ -16,7 +15,6 @@ def proto_gen(name, srcs, deps = [], visibility = ["//visibility:public"]):
     Generates:
         {name}_proto      - proto_library
         {name}_cc_proto   - C++ bindings
-        {name}_py_proto   - Python bindings
     """
 
     # Normalize deps to _proto suffix
@@ -39,10 +37,3 @@ def proto_gen(name, srcs, deps = [], visibility = ["//visibility:public"]):
         deps = [":" + name + "_proto"],
         visibility = visibility,
     )
-
-    py_proto_library(
-        name = name + "_py_proto",
-        deps = [":" + name + "_proto"],
-        visibility = visibility,
-    )
-

@@ -5,11 +5,25 @@ import bisect
 import json
 import math
 import struct
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from mapping.protos import camera_calibration_pb2
-from mapping.protos import frame_pb2
+try:
+    from mapping.protos import camera_calibration_pb2
+    from mapping.protos import frame_pb2
+except ModuleNotFoundError:
+    repo_root = Path(__file__).resolve().parents[2]
+    pyproto_dir = repo_root / "pyproto"
+    if pyproto_dir.exists():
+        sys.path.insert(0, str(pyproto_dir))
+        from mapping.protos import camera_calibration_pb2
+        from mapping.protos import frame_pb2
+    else:
+        raise ModuleNotFoundError(
+            "Python proto modules were not found. Run "
+            "`tools/export_pyproto.sh` from the ADLabel workspace root, "
+            "or set PYTHONPATH to an exported pyproto directory.") from None
 
 
 NSEC_PER_SEC = 1000000000

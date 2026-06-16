@@ -182,29 +182,29 @@ bool GenerateLidarFrameData(
 
   lidar_frame_data->raw_cloud = raw_cloud;
 
-  if (frame.has_lidar_object_detection_uri() &&
-      !frame.lidar_object_detection_uri().empty()) {
-    const std::vector<LidarDetectionObject> objects =
-        local_data_reader->ReadMetaData<LidarDetectionObject>(
-            frame.lidar_object_detection_uri());
+  // if (frame.has_lidar_object_detection_uri() &&
+  //     !frame.lidar_object_detection_uri().empty()) {
+  //   const std::vector<LidarDetectionObject> objects =
+  //       local_data_reader->ReadMetaData<LidarDetectionObject>(
+  //           frame.lidar_object_detection_uri());
 
-    const Eigen::Affine3d T_imu_to_lidar =
-        lidar_frame_data->T_sensor_to_imu.inverse();
-    std::vector<LidarBox> lidar_boxes;
-    lidar_boxes.reserve(objects.size());
-    for (const auto& object : objects) {
-      LidarBox lidar_box;
-      if (BuildLidarBox(object, T_imu_to_lidar, &lidar_box)) {
-        lidar_boxes.push_back(lidar_box);
-      }
-    }
+  //   const Eigen::Affine3d T_imu_to_lidar =
+  //       lidar_frame_data->T_sensor_to_imu.inverse();
+  //   std::vector<LidarBox> lidar_boxes;
+  //   lidar_boxes.reserve(objects.size());
+  //   for (const auto& object : objects) {
+  //     LidarBox lidar_box;
+  //     if (BuildLidarBox(object, T_imu_to_lidar, &lidar_box)) {
+  //       lidar_boxes.push_back(lidar_box);
+  //     }
+  //   }
 
-    if (!lidar_boxes.empty()) {
-      lidar_frame_data->raw_cloud = RemovePointsInsideBoxes(raw_cloud, lidar_boxes);
-      LOG(INFO) << "filtered lidar cloud points: " << raw_cloud->points.size()
-                << " -> " << lidar_frame_data->raw_cloud->points.size();
-    }
-  }
+  //   if (!lidar_boxes.empty()) {
+  //     lidar_frame_data->raw_cloud = RemovePointsInsideBoxes(raw_cloud, lidar_boxes);
+  //     LOG(INFO) << "filtered lidar cloud points: " << raw_cloud->points.size()
+  //               << " -> " << lidar_frame_data->raw_cloud->points.size();
+  //   }
+  // }
 
   return true;
 }

@@ -52,6 +52,19 @@ RUN git clone --depth 1 --branch ${GTSAM_VERSION} \
     && cmake --build /tmp/gtsam/build --target install \
     && rm -rf /tmp/gtsam
 
+# ---- Protobuf compiler used by pyproto export ----
+# Keep this aligned with MODULE.bazel's protobuf version. Placing it after
+# GTSAM keeps small protoc version changes from invalidating the GTSAM layer.
+ARG PROTOC_VERSION=33.4
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -O /tmp/protoc.zip \
+      https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip \
+    && unzip -q /tmp/protoc.zip -d /usr/local \
+    && rm /tmp/protoc.zip \
+    && protoc --version
+
 # ---- Developer tooling ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
       gdb \
@@ -79,7 +92,8 @@ RUN pip3 install --no-cache-dir \
       pre-commit \
       cmake-format \
       numpy \
-      matplotlib
+      matplotlib \
+      protobuf==6.33.4
 
 # ---- Non-root user matching host UID/GID (set via docker compose build args) ----
 ARG USER_NAME=dev
@@ -91,9 +105,8 @@ RUN groupadd --gid ${USER_GID} ${USER_NAME} \
     && chmod 0440 /etc/sudoers.d/${USER_NAME}
 
 # ---- Bazel / Bazelisk ----
-    RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jdk \
-    unzip \
   && rm -rf /var/lib/apt/lists/*
 
 ARG BAZELISK_VERSION=v1.22.1
