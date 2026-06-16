@@ -7,9 +7,6 @@ services:
         USER_UID: ${HOST_UID:-1000}
         USER_GID: ${HOST_GID:-1000}
 
-        http_proxy: ${http_proxy}
-        https_proxy: ${https_proxy}
-        no_proxy: ${no_proxy}
     image: adlabel-dev:0.1.0
     container_name: adlabel-dev
     hostname: adlabel-dev

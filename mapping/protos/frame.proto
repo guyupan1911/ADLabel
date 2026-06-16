@@ -36,4 +36,5 @@ message Frame {
 
   // camera_related
   optional CameraCalibration camera_calibration = 14;
+  optional string camera_segmentation_uri = 15;
 }
