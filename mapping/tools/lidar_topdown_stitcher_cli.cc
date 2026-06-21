@@ -2,8 +2,10 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <iomanip>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -22,8 +24,8 @@
 DEFINE_string(lidar_metadata, "", "lidar metadata path, relative to data_root or absolute");
 DEFINE_string(data_root, "", "root directory for sensor data");
 DEFINE_string(output_dir, "", "directory to save intensity.png");
-DEFINE_double(resolution, 0.1, "topdown image resolution, meters per pixel");
-DEFINE_double(margin_meters, 10.0, "extra margin around trajectory bounds");
+DEFINE_double(resolution, 0.05, "topdown image resolution, meters per pixel");
+DEFINE_double(margin_meters, 50.0, "extra margin around trajectory bounds");
 DEFINE_uint64(min_samples, 1, "minimum samples per cell to render");
 DEFINE_bool(use_log_intensity, true, "use logarithmic intensity mapping before image enhancement");
 DEFINE_string(intensity_aggregation, "mean", "intensity aggregation in each cell: max or mean");
@@ -33,6 +35,8 @@ DEFINE_double(percentile_high, 99.0, "high percentile used by intensity stretch"
 DEFINE_bool(apply_clahe, true, "apply CLAHE after percentile stretch");
 DEFINE_double(clahe_clip_limit, 2.0, "CLAHE clip limit");
 DEFINE_int32(clahe_tile_size, 8, "CLAHE tile grid width and height");
+DEFINE_double(distance, 0.0,
+              "trajectory split distance in meters, 0 disables splitting");
 
 namespace adlabel {
 namespace mapping {
@@ -65,6 +69,26 @@ unsigned char ClampIntensity(float intensity) {
     return static_cast<unsigned char>(clamped);
 }
 
+bool IsProcessableLidarFrame(const Frame& frame);
+
+SimplePose3DInterpolator BuildLioPoseInterpolator(const std::vector<Frame>& frames) {
+    SimplePose3DInterpolator interpolator;
+    size_t valid_pose_count = 0;
+
+    for (const auto& frame : frames) {
+        if (!frame.has_lio_pose_3d()) {
+            continue;
+        }
+        interpolator.InsertTimestampedPose(
+                frame.timestamp_ns(), Pose3D(frame.lio_pose_3d()));
+        ++valid_pose_count;
+    }
+
+    LOG(INFO) << "built LIO pose interpolator with " << valid_pose_count
+              << " poses from " << frames.size() << " lidar frames";
+    return interpolator;
+}
+
 TrajectoryBounds ComputeTrajectoryBounds(const std::vector<Frame>& frames) {
     TrajectoryBounds bounds;
     for (const auto& frame : frames) {
@@ -73,6 +97,51 @@ TrajectoryBounds ComputeTrajectoryBounds(const std::vector<Frame>& frames) {
         }
     }
     return bounds;
+}
+
+double FrameDistance2D(const Frame& left, const Frame& right) {
+    if (!left.has_lio_pose_3d() || !right.has_lio_pose_3d()) {
+        return 0.0;
+    }
+    const double dx = right.lio_pose_3d().x() - left.lio_pose_3d().x();
+    const double dy = right.lio_pose_3d().y() - left.lio_pose_3d().y();
+    return std::hypot(dx, dy);
+}
+
+std::vector<std::vector<Frame>> SplitFramesByDistance(
+        const std::vector<Frame>& frames,
+        double distance_m) {
+    if (distance_m <= 0.0) {
+        return {frames};
+    }
+
+    std::vector<std::vector<Frame>> segments;
+    std::vector<Frame> current_segment;
+    double current_distance_m = 0.0;
+
+    for (const auto& frame : frames) {
+        if (!IsProcessableLidarFrame(frame)) {
+            continue;
+        }
+
+        if (!current_segment.empty()) {
+            const double frame_distance = FrameDistance2D(current_segment.back(), frame);
+            if (current_distance_m + frame_distance > distance_m) {
+                segments.push_back(current_segment);
+                current_segment.clear();
+                current_distance_m = 0.0;
+            } else {
+                current_distance_m += frame_distance;
+            }
+        }
+
+        current_segment.push_back(frame);
+    }
+
+    if (!current_segment.empty()) {
+        segments.push_back(current_segment);
+    }
+    return segments;
 }
 
 GridFrame MakeGridFrame(const TrajectoryBounds& bounds, double resolution, double margin_meters) {
@@ -104,6 +173,13 @@ bool IsProcessableLidarFrame(const Frame& frame) {
         return false;
     }
     return true;
+}
+
+std::string SegmentIntensityFileName(size_t segment_index) {
+    std::ostringstream stream;
+    stream << "intensity_" << std::setw(3) << std::setfill('0')
+           << segment_index << ".png";
+    return stream.str();
 }
 
 LidarLosslessMapNode::IntensityAggregationMode ParseIntensityAggregationMode(
@@ -239,25 +315,10 @@ void AccumulateFrameToNode(const Frame& frame,
     }
 }
 
-int Run() {
-    CHECK(!FLAGS_lidar_metadata.empty()) << "--lidar_metadata is required";
-    CHECK(!FLAGS_data_root.empty()) << "--data_root is required";
-    CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
-    CHECK_GT(FLAGS_resolution, 0.0) << "--resolution must be positive";
-    CHECK_GE(FLAGS_margin_meters, 0.0) << "--margin_meters must be non-negative";
-    CHECK_GE(FLAGS_percentile_low, 0.0) << "--percentile_low must be in [0, 100]";
-    CHECK_LE(FLAGS_percentile_low, 100.0) << "--percentile_low must be in [0, 100]";
-    CHECK_GE(FLAGS_percentile_high, 0.0) << "--percentile_high must be in [0, 100]";
-    CHECK_LE(FLAGS_percentile_high, 100.0) << "--percentile_high must be in [0, 100]";
-    CHECK_LT(FLAGS_percentile_low, FLAGS_percentile_high)
-            << "--percentile_low must be less than --percentile_high";
-    CHECK_GT(FLAGS_clahe_clip_limit, 0.0) << "--clahe_clip_limit must be positive";
-    CHECK_GT(FLAGS_clahe_tile_size, 0) << "--clahe_tile_size must be positive";
-
-    auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
-    std::vector<Frame> frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
-    CHECK(!frames.empty()) << "no frames loaded from " << FLAGS_lidar_metadata;
-
+bool RenderIntensityImage(const std::vector<Frame>& frames,
+                          const std::shared_ptr<LocalDataReader>& data_reader,
+                          const SimplePose3DInterpolator& lio_pose_interpolator,
+                          const std::filesystem::path& output_path) {
     const TrajectoryBounds bounds = ComputeTrajectoryBounds(frames);
     CHECK(bounds.IsValid()) << "no valid lio_pose_3d found in frames";
 
@@ -290,7 +351,8 @@ int Run() {
         }
 
         FrameData lidar_frame_data;
-        if (!GenerateLidarFrameData(frame, &lidar_frame_data, data_reader)) {
+        if (!GenerateLidarFrameData(
+                    frame, &lidar_frame_data, data_reader, &lio_pose_interpolator, true)) {
             LOG(ERROR) << "failed to generate lidar frame data: " << frame.fid();
             continue;
         }
@@ -302,7 +364,10 @@ int Run() {
         }
     }
 
-    CHECK_GT(processed_frames, 0u) << "no lidar frames were processed";
+    if (processed_frames == 0) {
+        LOG(ERROR) << "no lidar frames were processed for " << output_path.string();
+        return false;
+    }
 
     cv::Mat intensity_image;
     node.GetIntensityImage(&intensity_image, static_cast<size_t>(FLAGS_min_samples));
@@ -310,19 +375,70 @@ int Run() {
                                             intensity_image,
                                             static_cast<size_t>(FLAGS_min_samples));
 
+    if (!cv::imwrite(output_path.string(), intensity_image)) {
+        LOG(ERROR) << "failed to write image: " << output_path.string();
+        return false;
+    }
+
+    LOG(INFO) << "saved intensity image to " << output_path.string()
+              << ", processed_frames=" << processed_frames
+              << ", occupancy=" << node.GetOccupancyRatio() * 100.0 << "%";
+    return true;
+}
+
+int Run() {
+    CHECK(!FLAGS_lidar_metadata.empty()) << "--lidar_metadata is required";
+    CHECK(!FLAGS_data_root.empty()) << "--data_root is required";
+    CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
+    CHECK_GT(FLAGS_resolution, 0.0) << "--resolution must be positive";
+    CHECK_GE(FLAGS_margin_meters, 0.0) << "--margin_meters must be non-negative";
+    CHECK_GE(FLAGS_percentile_low, 0.0) << "--percentile_low must be in [0, 100]";
+    CHECK_LE(FLAGS_percentile_low, 100.0) << "--percentile_low must be in [0, 100]";
+    CHECK_GE(FLAGS_percentile_high, 0.0) << "--percentile_high must be in [0, 100]";
+    CHECK_LE(FLAGS_percentile_high, 100.0) << "--percentile_high must be in [0, 100]";
+    CHECK_LT(FLAGS_percentile_low, FLAGS_percentile_high)
+            << "--percentile_low must be less than --percentile_high";
+    CHECK_GT(FLAGS_clahe_clip_limit, 0.0) << "--clahe_clip_limit must be positive";
+    CHECK_GT(FLAGS_clahe_tile_size, 0) << "--clahe_tile_size must be positive";
+    CHECK_GE(FLAGS_distance, 0.0) << "--distance must be non-negative";
+
+    auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
+    std::vector<Frame> frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
+    CHECK(!frames.empty()) << "no frames loaded from " << FLAGS_lidar_metadata;
+    const SimplePose3DInterpolator lio_pose_interpolator =
+            BuildLioPoseInterpolator(frames);
+
     const std::filesystem::path output_dir(FLAGS_output_dir);
     std::error_code error;
     std::filesystem::create_directories(output_dir, error);
     CHECK(!error) << "failed to create output_dir: " << output_dir.string()
                   << ", error: " << error.message();
 
-    const std::filesystem::path output_path = output_dir / "intensity.png";
-    CHECK(cv::imwrite(output_path.string(), intensity_image))
-            << "failed to write image: " << output_path.string();
+    const bool split_by_distance = FLAGS_distance > 0.0;
+    const std::vector<std::vector<Frame>> frame_segments =
+            SplitFramesByDistance(frames, FLAGS_distance);
+    CHECK(!frame_segments.empty()) << "no processable frame segments";
 
-    LOG(INFO) << "saved intensity image to " << output_path.string()
-              << ", processed_frames=" << processed_frames
-              << ", occupancy=" << node.GetOccupancyRatio() * 100.0 << "%";
+    for (size_t index = 0; index < frame_segments.size(); ++index) {
+        const std::filesystem::path output_path =
+                split_by_distance
+                        ? output_dir / SegmentIntensityFileName(index)
+                        : output_dir / "intensity.png";
+        LOG(INFO) << "render lidar topdown segment " << index
+                  << "/" << frame_segments.size()
+                  << ", frames=" << frame_segments[index].size()
+                  << ", output=" << output_path.string();
+        if (!RenderIntensityImage(
+                    frame_segments[index], data_reader, lio_pose_interpolator, output_path)) {
+            return 1;
+        }
+    }
+
+    if (split_by_distance) {
+        LOG(INFO) << "saved " << frame_segments.size()
+                  << " intensity image segments with split distance "
+                  << FLAGS_distance << " meters";
+    }
     return 0;
 }
 

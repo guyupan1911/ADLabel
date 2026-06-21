@@ -17,6 +17,17 @@ namespace {
 
 constexpr double kDetectionBoxLengthExtensionM = 0.2;
 
+const Pose3DMessage* GetLocalizationPose(const Frame& frame, bool use_lio_pose) {
+  if (use_lio_pose) {
+    return frame.has_lio_pose_3d() ? &frame.lio_pose_3d() : nullptr;
+  }
+  return frame.has_gnss_pose_3d() ? &frame.gnss_pose_3d() : nullptr;
+}
+
+const char* LocalizationPoseName(bool use_lio_pose) {
+  return use_lio_pose ? "lio_pose_3d" : "gnss_pose_3d";
+}
+
 struct LidarBox {
   Eigen::Affine3d T_lidar_to_box = Eigen::Affine3d::Identity();
   Eigen::Vector3d half_size = Eigen::Vector3d::Zero();
@@ -92,26 +103,30 @@ FrameData::Cloud::Ptr RemovePointsInsideBoxes(
 }
 
 bool DeskewPointCloud(const Frame& frame,
-                      const SimplePose3DInterpolator& lio_pose_interpolator,
+                      const SimplePose3DInterpolator& localization_pose_interpolator,
                       const Eigen::Affine3d& T_lidar_to_imu,
-                      FrameData::Cloud::Ptr cloud) {
+                      FrameData::Cloud::Ptr cloud,
+                      bool use_lio_pose) {
   CHECK(cloud != nullptr);
 
-  if (!frame.has_lio_pose_3d()) {
-    LOG(WARNING) << "frame does not have lio_pose_3d, skip deskewing";
+  if (GetLocalizationPose(frame, use_lio_pose) == nullptr) {
+    LOG(WARNING) << "frame does not have " << LocalizationPoseName(use_lio_pose)
+                 << ", skip deskewing";
     return false;
   }
 
-  Pose3D lio_pose_ref;
-  if (!lio_pose_interpolator.GetTimestampedPose(frame.timestamp_ns(),
-                                                 &lio_pose_ref,
-                                                 false)) {
-    LOG(WARNING) << "failed to interpolate LIO pose at frame timestamp "
+  Pose3D localization_pose_ref;
+  if (!localization_pose_interpolator.GetTimestampedPose(frame.timestamp_ns(),
+                                                         &localization_pose_ref,
+                                                         false)) {
+    LOG(WARNING) << "failed to interpolate "
+                 << LocalizationPoseName(use_lio_pose)
+                 << " at frame timestamp "
                  << frame.timestamp_ns() << ", skip deskewing";
     return false;
   }
 
-  const Eigen::Affine3d T_imu_to_world_ref = lio_pose_ref.GetAffine3D();
+  const Eigen::Affine3d T_imu_to_world_ref = localization_pose_ref.GetAffine3D();
   const Eigen::Affine3d T_imu_to_lidar = T_lidar_to_imu.inverse();
 
   size_t deskewed_count = 0;
@@ -124,18 +139,17 @@ bool DeskewPointCloud(const Frame& frame,
       continue;
     }
 
-    const int64_t point_timestamp_ns =
-        frame.timestamp_ns() + static_cast<int64_t>(point.timestamp * 1e9);
+    const int64_t point_timestamp_ns = static_cast<int64_t>(point.timestamp * 1e9);
 
-    Pose3D lio_pose_point;
-    if (!lio_pose_interpolator.GetTimestampedPose(point_timestamp_ns,
-                                                   &lio_pose_point,
-                                                   false)) {
+    Pose3D localization_pose_point;
+    if (!localization_pose_interpolator.GetTimestampedPose(point_timestamp_ns,
+                                                           &localization_pose_point,
+                                                           false)) {
       ++interpolation_failed_count;
       continue;
     }
 
-    const Eigen::Affine3d T_imu_to_world_point = lio_pose_point.GetAffine3D();
+    const Eigen::Affine3d T_imu_to_world_point = localization_pose_point.GetAffine3D();
 
     const Eigen::Vector3d point_lidar_at_t(point.x, point.y, point.z);
     const Eigen::Vector3d point_deskewed =
@@ -162,7 +176,8 @@ bool DeskewPointCloud(const Frame& frame,
 bool GenerateLidarFrameData(
     const Frame& frame, FrameData* lidar_frame_data,
     const std::shared_ptr<LocalDataReader>& local_data_reader,
-    const SimplePose3DInterpolator* lio_pose_interpolator) {
+    const SimplePose3DInterpolator* lio_pose_interpolator,
+    bool use_lio_pose) {
   CHECK(lidar_frame_data != nullptr);
   CHECK(local_data_reader != nullptr);
   CHECK(frame.has_sensor_to_imu_extrinsic())
@@ -177,7 +192,7 @@ bool GenerateLidarFrameData(
 
   if (lio_pose_interpolator != nullptr) {
     DeskewPointCloud(frame, *lio_pose_interpolator,
-                     lidar_frame_data->T_sensor_to_imu, raw_cloud);
+                     lidar_frame_data->T_sensor_to_imu, raw_cloud, use_lio_pose);
   }
 
   lidar_frame_data->raw_cloud = raw_cloud;

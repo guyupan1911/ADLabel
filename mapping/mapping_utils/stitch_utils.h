@@ -13,7 +13,8 @@ namespace mapping {
 bool GenerateLidarFrameData(
     const Frame& frame, FrameData* lidar_frame_data,
     const std::shared_ptr<LocalDataReader>& local_data_reader,
-    const SimplePose3DInterpolator* lio_pose_interpolator = nullptr);
+    const SimplePose3DInterpolator* lio_pose_interpolator = nullptr,
+    bool use_lio_pose = false);
 
 }  // namespace mapping
 }  // namespace adlabel

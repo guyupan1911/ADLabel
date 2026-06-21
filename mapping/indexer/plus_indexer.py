@@ -411,8 +411,8 @@ def parse_args():
                         help="Output root. Defaults to clip_root.")
     parser.add_argument("--calibration", default="sensor_calibration.json",
                         help="Calibration JSON path, relative to clip_root unless absolute.")
-    parser.add_argument("--lio_traj", default="offline_pose/lidar_odom_traj.txt",
-                        help="Pure LIO/lidar odom trajectory path.")
+    parser.add_argument("--lio_traj", default="offline_pose/result_pose_rel.txt",
+                        help="LIO localization trajectory path.")
     parser.add_argument(
         "--gnss_traj",
         default="offline_pose/pose_optimizer_fusion_output_traj.txt",
