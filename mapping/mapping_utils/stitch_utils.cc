@@ -19,13 +19,16 @@ constexpr double kDetectionBoxLengthExtensionM = 0.2;
 
 const Pose3DMessage* GetLocalizationPose(const Frame& frame, bool use_lio_pose) {
   if (use_lio_pose) {
+    if (frame.has_refined_pose_3d()) {
+      return &frame.refined_pose_3d();
+    }
     return frame.has_lio_pose_3d() ? &frame.lio_pose_3d() : nullptr;
   }
   return frame.has_gnss_pose_3d() ? &frame.gnss_pose_3d() : nullptr;
 }
 
 const char* LocalizationPoseName(bool use_lio_pose) {
-  return use_lio_pose ? "lio_pose_3d" : "gnss_pose_3d";
+  return use_lio_pose ? "refined_pose_3d/lio_pose_3d" : "gnss_pose_3d";
 }
 
 struct LidarBox {
@@ -190,10 +193,10 @@ bool GenerateLidarFrameData(
   CHECK(local_data_reader->ReadPointCloud(frame.cloud_uri(), raw_cloud))
       << "Fail to load raw cloud at " << frame.cloud_uri();
 
-  if (lio_pose_interpolator != nullptr) {
-    DeskewPointCloud(frame, *lio_pose_interpolator,
-                     lidar_frame_data->T_sensor_to_imu, raw_cloud, use_lio_pose);
-  }
+  // if (lio_pose_interpolator != nullptr) {
+  //   DeskewPointCloud(frame, *lio_pose_interpolator,
+  //                    lidar_frame_data->T_sensor_to_imu, raw_cloud, use_lio_pose);
+  // }
 
   lidar_frame_data->raw_cloud = raw_cloud;
 

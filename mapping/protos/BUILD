@@ -33,3 +33,8 @@ proto_gen(
         ":pose",
     ],
 )
+
+proto_gen(
+    name = "localization",
+    srcs = ["localization.proto"],
+)

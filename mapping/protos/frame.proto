@@ -30,6 +30,7 @@ message Frame {
   // localization related
   optional Pose3DMessage gnss_pose_3d = 11;
   optional Pose3DMessage lio_pose_3d = 12;
+  optional Pose3DMessage refined_pose_3d = 16;
 
   // extrinsic
   optional Pose3DMessage sensor_to_imu_extrinsic = 13;

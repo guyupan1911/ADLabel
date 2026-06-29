@@ -37,6 +37,7 @@ DEFINE_double(clahe_clip_limit, 2.0, "CLAHE clip limit");
 DEFINE_int32(clahe_tile_size, 8, "CLAHE tile grid width and height");
 DEFINE_double(distance, 0.0,
               "trajectory split distance in meters, 0 disables splitting");
+DEFINE_bool(use_lio_pose, false, "use frame.lio_pose_3d; default uses frame.refined_pose_3d");
 
 namespace adlabel {
 namespace mapping {
@@ -69,48 +70,65 @@ unsigned char ClampIntensity(float intensity) {
     return static_cast<unsigned char>(clamped);
 }
 
-bool IsProcessableLidarFrame(const Frame& frame);
+bool IsProcessableLidarFrame(const Frame& frame, bool use_lio_pose);
 
-SimplePose3DInterpolator BuildLioPoseInterpolator(const std::vector<Frame>& frames) {
+const Pose3DMessage& GetSelectedPose(const Frame& frame, bool use_lio_pose) {
+    return use_lio_pose ? frame.lio_pose_3d() : frame.refined_pose_3d();
+}
+
+bool HasSelectedPose(const Frame& frame, bool use_lio_pose) {
+    return use_lio_pose ? frame.has_lio_pose_3d() : frame.has_refined_pose_3d();
+}
+
+const char* SelectedPoseName(bool use_lio_pose) {
+    return use_lio_pose ? "lio_pose_3d" : "refined_pose_3d";
+}
+
+SimplePose3DInterpolator BuildPoseInterpolator(const std::vector<Frame>& frames,
+                                               bool use_lio_pose) {
     SimplePose3DInterpolator interpolator;
     size_t valid_pose_count = 0;
 
     for (const auto& frame : frames) {
-        if (!frame.has_lio_pose_3d()) {
+        if (!HasSelectedPose(frame, use_lio_pose)) {
             continue;
         }
         interpolator.InsertTimestampedPose(
-                frame.timestamp_ns(), Pose3D(frame.lio_pose_3d()));
+                frame.timestamp_ns(), Pose3D(GetSelectedPose(frame, use_lio_pose)));
         ++valid_pose_count;
     }
 
-    LOG(INFO) << "built LIO pose interpolator with " << valid_pose_count
+    LOG(INFO) << "built " << SelectedPoseName(use_lio_pose) << " interpolator with "
+              << valid_pose_count
               << " poses from " << frames.size() << " lidar frames";
     return interpolator;
 }
 
-TrajectoryBounds ComputeTrajectoryBounds(const std::vector<Frame>& frames) {
+TrajectoryBounds ComputeTrajectoryBounds(const std::vector<Frame>& frames, bool use_lio_pose) {
     TrajectoryBounds bounds;
     for (const auto& frame : frames) {
-        if (frame.has_lio_pose_3d()) {
-            bounds.Update(frame.lio_pose_3d());
+        if (HasSelectedPose(frame, use_lio_pose)) {
+            bounds.Update(GetSelectedPose(frame, use_lio_pose));
         }
     }
     return bounds;
 }
 
-double FrameDistance2D(const Frame& left, const Frame& right) {
-    if (!left.has_lio_pose_3d() || !right.has_lio_pose_3d()) {
+double FrameDistance2D(const Frame& left, const Frame& right, bool use_lio_pose) {
+    if (!HasSelectedPose(left, use_lio_pose) || !HasSelectedPose(right, use_lio_pose)) {
         return 0.0;
     }
-    const double dx = right.lio_pose_3d().x() - left.lio_pose_3d().x();
-    const double dy = right.lio_pose_3d().y() - left.lio_pose_3d().y();
+    const double dx = GetSelectedPose(right, use_lio_pose).x() -
+                      GetSelectedPose(left, use_lio_pose).x();
+    const double dy = GetSelectedPose(right, use_lio_pose).y() -
+                      GetSelectedPose(left, use_lio_pose).y();
     return std::hypot(dx, dy);
 }
 
 std::vector<std::vector<Frame>> SplitFramesByDistance(
         const std::vector<Frame>& frames,
-        double distance_m) {
+        double distance_m,
+        bool use_lio_pose) {
     if (distance_m <= 0.0) {
         return {frames};
     }
@@ -120,12 +138,13 @@ std::vector<std::vector<Frame>> SplitFramesByDistance(
     double current_distance_m = 0.0;
 
     for (const auto& frame : frames) {
-        if (!IsProcessableLidarFrame(frame)) {
+        if (!IsProcessableLidarFrame(frame, use_lio_pose)) {
             continue;
         }
 
         if (!current_segment.empty()) {
-            const double frame_distance = FrameDistance2D(current_segment.back(), frame);
+            const double frame_distance =
+                    FrameDistance2D(current_segment.back(), frame, use_lio_pose);
             if (current_distance_m + frame_distance > distance_m) {
                 segments.push_back(current_segment);
                 current_segment.clear();
@@ -159,13 +178,14 @@ GridFrame MakeGridFrame(const TrajectoryBounds& bounds, double resolution, doubl
     return frame;
 }
 
-bool IsProcessableLidarFrame(const Frame& frame) {
+bool IsProcessableLidarFrame(const Frame& frame, bool use_lio_pose) {
     if (!frame.has_cloud_uri() || frame.cloud_uri().empty()) {
         LOG(WARNING) << "skip frame without cloud_uri: " << frame.fid();
         return false;
     }
-    if (!frame.has_lio_pose_3d()) {
-        LOG(WARNING) << "skip frame without lio_pose_3d: " << frame.fid();
+    if (!HasSelectedPose(frame, use_lio_pose)) {
+        LOG(WARNING) << "skip frame without " << SelectedPoseName(use_lio_pose)
+                     << ": " << frame.fid();
         return false;
     }
     if (!frame.has_sensor_to_imu_extrinsic()) {
@@ -300,12 +320,14 @@ cv::Mat EnhanceIntensityImage(const LidarLosslessMapNode& node,
 
 void AccumulateFrameToNode(const Frame& frame,
                            const FrameData& lidar_frame_data,
-                           LidarLosslessMapNode* node) {
+                           LidarLosslessMapNode* node,
+                           bool use_lio_pose) {
     CHECK(node != nullptr);
     CHECK(lidar_frame_data.raw_cloud != nullptr);
 
     const Eigen::Affine3d T_lidar_to_imu = lidar_frame_data.T_sensor_to_imu;
-    const Eigen::Affine3d T_world_imu = Pose3D(frame.lio_pose_3d()).GetAffine3D();
+    const Eigen::Affine3d T_world_imu =
+            Pose3D(GetSelectedPose(frame, use_lio_pose)).GetAffine3D();
     const Eigen::Affine3d T_world_lidar = T_world_imu * T_lidar_to_imu;
 
     for (const auto& point : lidar_frame_data.raw_cloud->points) {
@@ -317,10 +339,12 @@ void AccumulateFrameToNode(const Frame& frame,
 
 bool RenderIntensityImage(const std::vector<Frame>& frames,
                           const std::shared_ptr<LocalDataReader>& data_reader,
-                          const SimplePose3DInterpolator& lio_pose_interpolator,
+                          const SimplePose3DInterpolator& pose_interpolator,
+                          bool use_lio_pose,
                           const std::filesystem::path& output_path) {
-    const TrajectoryBounds bounds = ComputeTrajectoryBounds(frames);
-    CHECK(bounds.IsValid()) << "no valid lio_pose_3d found in frames";
+    const TrajectoryBounds bounds = ComputeTrajectoryBounds(frames, use_lio_pose);
+    CHECK(bounds.IsValid()) << "no valid " << SelectedPoseName(use_lio_pose)
+                            << " found in frames";
 
     GridFrame grid_frame = MakeGridFrame(bounds, FLAGS_resolution, FLAGS_margin_meters);
     CHECK_GT(grid_frame.rows, 0u);
@@ -346,18 +370,18 @@ bool RenderIntensityImage(const std::vector<Frame>& frames,
 
     size_t processed_frames = 0;
     for (const auto& frame : frames) {
-        if (!IsProcessableLidarFrame(frame)) {
+        if (!IsProcessableLidarFrame(frame, use_lio_pose)) {
             continue;
         }
 
         FrameData lidar_frame_data;
         if (!GenerateLidarFrameData(
-                    frame, &lidar_frame_data, data_reader, &lio_pose_interpolator, true)) {
+                    frame, &lidar_frame_data, data_reader, &pose_interpolator, use_lio_pose)) {
             LOG(ERROR) << "failed to generate lidar frame data: " << frame.fid();
             continue;
         }
 
-        AccumulateFrameToNode(frame, lidar_frame_data, &node);
+        AccumulateFrameToNode(frame, lidar_frame_data, &node, use_lio_pose);
         ++processed_frames;
         if (processed_frames % 50 == 0) {
             LOG(INFO) << "processed " << processed_frames << " lidar frames";
@@ -403,10 +427,12 @@ int Run() {
     CHECK_GE(FLAGS_distance, 0.0) << "--distance must be non-negative";
 
     auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
-    std::vector<Frame> frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
+    std::vector<Frame> frames = ReadMetaFile<Frame>(FLAGS_lidar_metadata);
     CHECK(!frames.empty()) << "no frames loaded from " << FLAGS_lidar_metadata;
-    const SimplePose3DInterpolator lio_pose_interpolator =
-            BuildLioPoseInterpolator(frames);
+    LOG(INFO) << "using " << SelectedPoseName(FLAGS_use_lio_pose)
+              << " for lidar topdown stitching";
+    const SimplePose3DInterpolator pose_interpolator =
+            BuildPoseInterpolator(frames, FLAGS_use_lio_pose);
 
     const std::filesystem::path output_dir(FLAGS_output_dir);
     std::error_code error;
@@ -416,7 +442,7 @@ int Run() {
 
     const bool split_by_distance = FLAGS_distance > 0.0;
     const std::vector<std::vector<Frame>> frame_segments =
-            SplitFramesByDistance(frames, FLAGS_distance);
+            SplitFramesByDistance(frames, FLAGS_distance, FLAGS_use_lio_pose);
     CHECK(!frame_segments.empty()) << "no processable frame segments";
 
     for (size_t index = 0; index < frame_segments.size(); ++index) {
@@ -429,7 +455,11 @@ int Run() {
                   << ", frames=" << frame_segments[index].size()
                   << ", output=" << output_path.string();
         if (!RenderIntensityImage(
-                    frame_segments[index], data_reader, lio_pose_interpolator, output_path)) {
+                    frame_segments[index],
+                    data_reader,
+                    pose_interpolator,
+                    FLAGS_use_lio_pose,
+                    output_path)) {
             return 1;
         }
     }

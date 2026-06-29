@@ -1,0 +1,44 @@
+syntax = "proto2";
+
+package adlabel.mapping;
+
+message LocalizationHeader {
+  optional double timestamp_msec = 1;
+}
+
+message LocalizationPoint3D {
+  optional double x = 1;
+  optional double y = 2;
+  optional double z = 3;
+}
+
+message LocalizationQuaternion {
+  optional double qx = 1;
+  optional double qy = 2;
+  optional double qz = 3;
+  optional double qw = 4;
+}
+
+message LocalizationEulerAngle {
+  optional double roll = 1;
+  optional double pitch = 2;
+  optional double yaw = 3;
+}
+
+// A minimal wire-compatible subset of drive.common.localization.LocalizationEstimation.
+// Unknown fields in localization.bin are skipped by protobuf parsing.
+message LocalizationEstimation {
+  enum LocalizationStatus {
+    LANE = 0;
+    ROAD = 1;
+    FAIL = 2;
+  }
+
+  optional LocalizationHeader header = 1;
+  optional LocalizationPoint3D position = 2;
+  optional LocalizationQuaternion orientation = 3;
+  optional LocalizationEulerAngle euler_angles = 4;
+  optional LocalizationPoint3D position_covariance = 21;
+  optional LocalizationPoint3D orientation_covariance = 22;
+  optional LocalizationStatus localization_status = 30;
+}

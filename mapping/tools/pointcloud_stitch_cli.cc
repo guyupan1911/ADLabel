@@ -27,12 +27,10 @@ DEFINE_string(lidar_metadata,
 DEFINE_string(data_root, "data/plus_mapping", "root directory for sensor data");
 DEFINE_string(output_dir, "data/plus_mapping/pointcloud_stitch",
     "directory to save stitched cloud.pcd");
-DEFINE_double(frame_leaf_size, 0.2, "voxel grid leaf size before stitching, in meters");
-DEFINE_double(output_leaf_size, 0.2, "voxel grid leaf size after stitching, in meters");
+DEFINE_double(frame_leaf_size, 0.4, "voxel grid leaf size before stitching, in meters");
+DEFINE_double(output_leaf_size, 0.4, "voxel grid leaf size after stitching, in meters");
 DEFINE_double(distance, 0.0,
     "trajectory split distance in meters, 0 disables splitting");
-DEFINE_bool(use_lio_localization, false,
-    "use lio_pose_3d for localization, otherwise use gnss_pose_3d");
 
 using namespace adlabel::mapping;
 
@@ -41,15 +39,12 @@ namespace {
 constexpr double kSingleFrameRoiForwardRangeM = 100.0;
 constexpr double kSingleFrameRoiLateralRangeM = 100.0;
 
-const Pose3DMessage* GetLocalizationPose(const Frame& frame, bool use_lio_localization) {
-  if (use_lio_localization) {
-    return frame.has_lio_pose_3d() ? &frame.lio_pose_3d() : nullptr;
-  }
-  return frame.has_gnss_pose_3d() ? &frame.gnss_pose_3d() : nullptr;
+const Pose3DMessage* GetLocalizationPose(const Frame& frame) {
+  return frame.has_refined_pose_3d() ? &frame.refined_pose_3d() : nullptr;
 }
 
-const char* LocalizationPoseName(bool use_lio_localization) {
-  return use_lio_localization ? "lio_pose_3d" : "gnss_pose_3d";
+const char* LocalizationPoseName() {
+  return "refined_pose_3d";
 }
 
 PointCloudXYZIRT::Ptr PassThroughCloud(const PointCloudXYZIRT::ConstPtr& cloud,
@@ -181,14 +176,12 @@ bool SaveStitchedCloud(const PointCloudXYZIRT::ConstPtr& stitched_cloud,
 }
 
 SimplePose3DInterpolator BuildLocalizationPoseInterpolator(
-    const std::vector<Frame>& lidar_frames,
-    bool use_lio_localization) {
+    const std::vector<Frame>& lidar_frames) {
   SimplePose3DInterpolator interpolator;
   size_t valid_pose_count = 0;
 
   for (const auto& frame : lidar_frames) {
-    const Pose3DMessage* localization_pose =
-        GetLocalizationPose(frame, use_lio_localization);
+    const Pose3DMessage* localization_pose = GetLocalizationPose(frame);
     if (localization_pose == nullptr) {
       continue;
     }
@@ -197,7 +190,7 @@ SimplePose3DInterpolator BuildLocalizationPoseInterpolator(
     ++valid_pose_count;
   }
 
-  LOG(INFO) << "built " << LocalizationPoseName(use_lio_localization)
+  LOG(INFO) << "built " << LocalizationPoseName()
             << " interpolator with " << valid_pose_count
             << " poses from " << lidar_frames.size() << " lidar frames";
   return interpolator;
@@ -213,10 +206,9 @@ int main(int argc, char** argv) {
   auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
   auto lidar_frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
   LOG(INFO) << "lidar_frames size: " << lidar_frames.size();
-  LOG(INFO) << "localization pose source: "
-            << LocalizationPoseName(FLAGS_use_lio_localization);
+  LOG(INFO) << "localization pose source: " << LocalizationPoseName();
   const SimplePose3DInterpolator localization_pose_interpolator =
-      BuildLocalizationPoseInterpolator(lidar_frames, FLAGS_use_lio_localization);
+      BuildLocalizationPoseInterpolator(lidar_frames);
 
   const std::filesystem::path output_dir(FLAGS_output_dir);
   std::error_code error;
@@ -243,11 +235,10 @@ int main(int argc, char** argv) {
       LOG(WARNING) << "skip frame without cloud_uri: " << frame.fid();
       continue;
     }
-    const Pose3DMessage* localization_pose =
-        GetLocalizationPose(frame, FLAGS_use_lio_localization);
+    const Pose3DMessage* localization_pose = GetLocalizationPose(frame);
     if (localization_pose == nullptr) {
       LOG(WARNING) << "skip frame without "
-                   << LocalizationPoseName(FLAGS_use_lio_localization)
+                   << LocalizationPoseName()
                    << ": " << frame.fid();
       continue;
     }
@@ -262,7 +253,7 @@ int main(int argc, char** argv) {
             &lidar_frame_data,
             data_reader,
             &localization_pose_interpolator,
-            FLAGS_use_lio_localization)) {
+            true)) {
       LOG(ERROR) << "failed to generate lidar frame data: " << frame.fid();
       continue;
     }

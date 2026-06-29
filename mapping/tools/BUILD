@@ -57,3 +57,19 @@ cc_binary(
       "@system_libs//:opencv",
     ],
 )
+
+cc_binary(
+    name = "pose_optimize_cli",
+    srcs = [
+      "pose_optimize_cli.cc",
+    ],
+    deps = [
+      "//mapping/common:file",
+      "//mapping/protos:frame_cc_proto",
+      "//mapping/protos:localization_cc_proto",
+      "@local_libs//:gtsam",
+      "@system_libs//:eigen",
+      "@system_libs//:gflags",
+      "@system_libs//:glog",
+    ],
+)
