@@ -1,3 +1,5 @@
+name: adlabel
+
 services:
   dev:
     build:
@@ -16,7 +18,7 @@ services:
     # persist across container restarts via the same bind mount.
     volumes:
       - ../:/workspace/ADLabel
-      - /home/guyu/data:/workspace/data
+      - /team/shared:/team/shared
 
     # host networking simplifies local debugging (gRPC, debuggers, future ROS replay).
     network_mode: host
