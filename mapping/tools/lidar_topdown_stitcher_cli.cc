@@ -35,6 +35,8 @@ DEFINE_double(percentile_high, 99.0, "high percentile used by intensity stretch"
 DEFINE_bool(apply_clahe, true, "apply CLAHE after percentile stretch");
 DEFINE_double(clahe_clip_limit, 2.0, "CLAHE clip limit");
 DEFINE_int32(clahe_tile_size, 8, "CLAHE tile grid width and height");
+DEFINE_bool(apply_hole_fill, false, "fill small zero-valued holes after image enhancement");
+DEFINE_int32(hole_fill_kernel_size, 3, "odd morphology kernel size used by hole fill");
 DEFINE_double(distance, 0.0,
               "trajectory split distance in meters, 0 disables splitting");
 DEFINE_bool(use_lio_pose, false, "use frame.lio_pose_3d; default uses frame.refined_pose_3d");
@@ -298,6 +300,28 @@ cv::Mat ApplyClahe(const cv::Mat& image, const cv::Mat& valid_mask) {
     return enhanced;
 }
 
+cv::Mat FillSmallIntensityHoles(const cv::Mat& image) {
+    CHECK_EQ(image.type(), CV_8UC1);
+
+    int kernel_size = FLAGS_hole_fill_kernel_size;
+    if (kernel_size < 3) {
+        kernel_size = 3;
+    }
+    if (kernel_size % 2 == 0) {
+        ++kernel_size;
+    }
+
+    const cv::Mat kernel = cv::getStructuringElement(
+            cv::MORPH_ELLIPSE, cv::Size(kernel_size, kernel_size));
+    cv::Mat closed;
+    cv::morphologyEx(image, closed, cv::MORPH_CLOSE, kernel);
+
+    cv::Mat filled = image.clone();
+    closed.copyTo(filled, image == 0);
+    LOG(INFO) << "applied hole fill: kernel_size=" << kernel_size;
+    return filled;
+}
+
 cv::Mat EnhanceIntensityImage(const LidarLosslessMapNode& node,
                               const cv::Mat& image,
                               size_t min_samples) {
@@ -314,6 +338,9 @@ cv::Mat EnhanceIntensityImage(const LidarLosslessMapNode& node,
         enhanced = ApplyClahe(enhanced, valid_mask);
         LOG(INFO) << "applied CLAHE: clip_limit=" << FLAGS_clahe_clip_limit
                   << ", tile_size=" << FLAGS_clahe_tile_size;
+    }
+    if (FLAGS_apply_hole_fill) {
+        enhanced = FillSmallIntensityHoles(enhanced);
     }
     return enhanced;
 }
@@ -424,6 +451,7 @@ int Run() {
             << "--percentile_low must be less than --percentile_high";
     CHECK_GT(FLAGS_clahe_clip_limit, 0.0) << "--clahe_clip_limit must be positive";
     CHECK_GT(FLAGS_clahe_tile_size, 0) << "--clahe_tile_size must be positive";
+    CHECK_GT(FLAGS_hole_fill_kernel_size, 0) << "--hole_fill_kernel_size must be positive";
     CHECK_GE(FLAGS_distance, 0.0) << "--distance must be non-negative";
 
     auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
