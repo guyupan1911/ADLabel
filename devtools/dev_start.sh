@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the ADLabel dev image and start the development container.
-# Idempotent: re-run any time. Docker's layer cache + `up -d` handle
-# "rebuild only when needed" and "start only if not running".
+# Start the ADLabel development container.
+# By default this does not rebuild the image. Pass --build when the image needs
+# to be rebuilt; Docker Compose will still create the image if it is missing.
 
 set -euo pipefail
 
@@ -12,29 +12,30 @@ cd "$(dirname "$0")/.."
 export HOST_UID="$(id -u)"
 export HOST_GID="$(id -g)"
 
-IMAGE_NAME="adlabel-dev:0.1.0"
-DOCKERFILE="docker/Dockerfile"
 COMPOSE_FILE="docker/docker-compose.yml"
 
-build_args=()
-if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    echo "🔨 Image '$IMAGE_NAME' not found; building it first..."
-    build_args+=(--build)
-else
-    image_created="$(docker image inspect -f '{{.Created}}' "$IMAGE_NAME")"
-    image_created_epoch="$(date -d "$image_created" +%s)"
-    dockerfile_mtime_epoch="$(date -r "$DOCKERFILE" +%s)"
-
-    if (( dockerfile_mtime_epoch > image_created_epoch )); then
-        echo "🔨 $DOCKERFILE is newer than '$IMAGE_NAME'; rebuilding..."
-        build_args+=(--build)
-    else
-        echo "✅ Image '$IMAGE_NAME' is up to date; starting without rebuild."
-    fi
+BUILD_IMAGE=false
+if [[ "${1:-}" == "--build" ]]; then
+    BUILD_IMAGE=true
+elif [[ -n "${1:-}" ]]; then
+    echo "Usage: $0 [--build]"
+    exit 1
 fi
 
 echo "🚀 Starting ADLabel dev container..."
-docker compose -f "$COMPOSE_FILE" up -d "${build_args[@]}"
+echo ""
+
+compose_args=(up -d)
+if [[ "$BUILD_IMAGE" == "true" ]]; then
+    compose_args+=(--build)
+    echo "▶️  Building image and starting container..."
+else
+    echo "▶️  Starting container..."
+    echo "   Docker Compose will recreate the container if docker-compose.yml changed."
+    echo "   It will only build the image when the configured image is missing."
+fi
+
+docker compose -f "$COMPOSE_FILE" "${compose_args[@]}"
 
 echo ""
 echo "✅ Container 'adlabel-dev' is up."

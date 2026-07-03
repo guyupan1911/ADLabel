@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <utility>
 #include <vector>
 
 #include <Eigen/Geometry>
@@ -105,6 +108,120 @@ FrameData::Cloud::Ptr RemovePointsInsideBoxes(
   return filtered_cloud;
 }
 
+constexpr std::uint32_t kLidarNnGroundLabel = 0;
+constexpr double kEgoVehicleMinXM = -2.5;
+constexpr double kEgoVehicleMaxXM = 3.5;
+constexpr double kEgoVehicleMinYM = -1.3;
+constexpr double kEgoVehicleMaxYM = 1.3;
+constexpr double kEgoVehicleMinZM = -2.5;
+constexpr double kEgoVehicleMaxZM = 1.0;
+
+bool ReadUint32Labels(const std::string& uri, std::vector<std::uint32_t>* labels) {
+  CHECK(labels != nullptr);
+  labels->clear();
+
+  const std::filesystem::path path(uri);
+  if (!std::filesystem::exists(path)) {
+    LOG(WARNING) << "lidar_nn_uri file does not exist: " << uri;
+    return false;
+  }
+
+  const std::uintmax_t file_size = std::filesystem::file_size(path);
+  if (file_size % sizeof(std::uint32_t) != 0) {
+    LOG(WARNING) << "lidar_nn_uri file size is not uint32-aligned: "
+                 << uri << ", size=" << file_size;
+    return false;
+  }
+
+  labels->resize(file_size / sizeof(std::uint32_t));
+  std::ifstream input(path, std::ios::binary);
+  if (!input) {
+    LOG(WARNING) << "failed to open lidar_nn_uri file: " << uri;
+    labels->clear();
+    return false;
+  }
+
+  input.read(reinterpret_cast<char*>(labels->data()),
+             static_cast<std::streamsize>(file_size));
+  if (!input) {
+    LOG(WARNING) << "failed to read lidar_nn_uri file: " << uri;
+    labels->clear();
+    return false;
+  }
+  return true;
+}
+
+FrameData::Cloud::Ptr KeepGroundPointsByLidarNnLabels(
+    const FrameData::Cloud::Ptr& raw_cloud,
+    const std::vector<std::uint32_t>& labels,
+    FrameData* frame_data) {
+  CHECK(raw_cloud != nullptr);
+  CHECK(frame_data != nullptr);
+
+  FrameData::Cloud::Ptr filtered_cloud(new FrameData::Cloud);
+  *filtered_cloud = *raw_cloud;
+  filtered_cloud->points.clear();
+  filtered_cloud->points.reserve(raw_cloud->points.size());
+  frame_data->ground_indices.clear();
+  frame_data->non_ground_indices.clear();
+
+  for (std::size_t i = 0; i < raw_cloud->points.size(); ++i) {
+    if (labels[i] == kLidarNnGroundLabel) {
+      frame_data->ground_indices.push_back(static_cast<int>(i));
+      filtered_cloud->points.push_back(raw_cloud->points[i]);
+    } else {
+      frame_data->non_ground_indices.push_back(static_cast<int>(i));
+    }
+  }
+
+  filtered_cloud->width = static_cast<std::uint32_t>(filtered_cloud->points.size());
+  filtered_cloud->height = 1;
+  filtered_cloud->is_dense = raw_cloud->is_dense;
+  return filtered_cloud;
+}
+
+bool IsInsideEgoVehicleBox(const PointXYZIRT& point) {
+  return point.x >= kEgoVehicleMinXM && point.x <= kEgoVehicleMaxXM &&
+         point.y >= kEgoVehicleMinYM && point.y <= kEgoVehicleMaxYM &&
+         point.z >= kEgoVehicleMinZM && point.z <= kEgoVehicleMaxZM;
+}
+
+FrameData::Cloud::Ptr RemoveEgoVehiclePoints(
+    const FrameData::Cloud::Ptr& raw_cloud,
+    std::vector<int>* point_indices) {
+  CHECK(raw_cloud != nullptr);
+
+  FrameData::Cloud::Ptr filtered_cloud(new FrameData::Cloud);
+  *filtered_cloud = *raw_cloud;
+  filtered_cloud->points.clear();
+  filtered_cloud->points.reserve(raw_cloud->points.size());
+
+  const bool update_indices = point_indices != nullptr && !point_indices->empty();
+  std::vector<int> filtered_indices;
+  if (update_indices) {
+    CHECK_EQ(point_indices->size(), raw_cloud->points.size());
+    filtered_indices.reserve(point_indices->size());
+  }
+
+  for (std::size_t i = 0; i < raw_cloud->points.size(); ++i) {
+    if (IsInsideEgoVehicleBox(raw_cloud->points[i])) {
+      continue;
+    }
+    filtered_cloud->points.push_back(raw_cloud->points[i]);
+    if (update_indices) {
+      filtered_indices.push_back((*point_indices)[i]);
+    }
+  }
+
+  if (update_indices) {
+    *point_indices = std::move(filtered_indices);
+  }
+  filtered_cloud->width = static_cast<std::uint32_t>(filtered_cloud->points.size());
+  filtered_cloud->height = 1;
+  filtered_cloud->is_dense = raw_cloud->is_dense;
+  return filtered_cloud;
+}
+
 bool DeskewPointCloud(const Frame& frame,
                       const SimplePose3DInterpolator& localization_pose_interpolator,
                       const Eigen::Affine3d& T_lidar_to_imu,
@@ -199,6 +316,41 @@ bool GenerateLidarFrameData(
   // }
 
   lidar_frame_data->raw_cloud = raw_cloud;
+  lidar_frame_data->ground_indices.clear();
+  lidar_frame_data->non_ground_indices.clear();
+  // LOG(INFO) << "loaded lidar cloud points: " << raw_cloud->points.size()
+  //           << ", uri=" << frame.cloud_uri();
+
+  if (frame.has_lidar_nn_uri() && !frame.lidar_nn_uri().empty()) {
+    std::vector<std::uint32_t> lidar_nn_labels;
+    if (ReadUint32Labels(frame.lidar_nn_uri(), &lidar_nn_labels)) {
+      if (lidar_nn_labels.size() == raw_cloud->points.size()) {
+        lidar_frame_data->raw_cloud =
+            KeepGroundPointsByLidarNnLabels(raw_cloud, lidar_nn_labels,
+                                            lidar_frame_data);
+        // LOG(INFO) << "filtered lidar cloud by lidar_nn_uri ground labels: "
+        //           << raw_cloud->points.size() << " -> "
+        //           << lidar_frame_data->raw_cloud->points.size()
+        //           << ", non_ground=" << lidar_frame_data->non_ground_indices.size()
+        //           << ", uri=" << frame.lidar_nn_uri();
+      } else {
+        LOG(WARNING) << "lidar_nn_uri label count does not match cloud point count: "
+                     << lidar_nn_labels.size() << " vs " << raw_cloud->points.size()
+                     << ", skip ground filtering, uri=" << frame.lidar_nn_uri();
+      }
+    }
+  }
+
+  const std::size_t before_ego_filter_count =
+      lidar_frame_data->raw_cloud->points.size();
+  lidar_frame_data->raw_cloud = RemoveEgoVehiclePoints(
+      lidar_frame_data->raw_cloud, &lidar_frame_data->ground_indices);
+  // LOG(INFO) << "filtered lidar cloud by ego vehicle box in lidar frame: "
+  //           << before_ego_filter_count << " -> "
+  //           << lidar_frame_data->raw_cloud->points.size()
+  //           << ", box_x=[" << kEgoVehicleMinXM << ", " << kEgoVehicleMaxXM
+  //           << "], box_y=[" << kEgoVehicleMinYM << ", " << kEgoVehicleMaxYM
+  //           << "], box_z=[" << kEgoVehicleMinZM << ", " << kEgoVehicleMaxZM << "]";
 
   // if (frame.has_lidar_object_detection_uri() &&
   //     !frame.lidar_object_detection_uri().empty()) {

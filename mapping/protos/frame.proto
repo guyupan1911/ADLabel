@@ -26,6 +26,7 @@ message Frame {
   optional string cloud_uri = 8;
   optional string camera_image_uri = 9;
   optional string lidar_object_detection_uri = 10; // in imu coordinate
+  optional string lidar_nn_uri = 17;
 
   // localization related
   optional Pose3DMessage gnss_pose_3d = 11;
