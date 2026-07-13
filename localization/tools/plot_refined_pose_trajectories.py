@@ -142,11 +142,21 @@ def save_png(trajectories, output_png):
     print(f"saved trajectory png: {output_png}")
 
 
-def save_html(trajectories, output_html):
+def save_html(trajectories, output_html, satellite=False):
     import folium
 
     first_lat, first_lon = trajectories[0][2][0]
-    map_view = folium.Map(location=[first_lat, first_lon], zoom_start=18)
+    if satellite:
+        map_view = folium.Map(location=[first_lat, first_lon], zoom_start=18, tiles=None)
+        folium.TileLayer(
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            attr="Tiles &copy; Esri",
+            name="Esri World Imagery",
+            overlay=False,
+            control=True,
+        ).add_to(map_view)
+    else:
+        map_view = folium.Map(location=[first_lat, first_lon], zoom_start=18)
 
     all_points = []
     for index, (label, _, map_points, _) in enumerate(trajectories):
@@ -193,6 +203,7 @@ def plot_refined_pose_trajectories(metadata_paths, output_dir):
     trajectories = load_refined_pose_trajectories(metadata_paths)
     save_png(trajectories, output_dir / "refined_pose_trajectories.png")
     save_html(trajectories, output_dir / "refined_pose_trajectories.html")
+    save_html(trajectories, output_dir / "refined_pose_trajectories_satellite.html", satellite=True)
 
 
 def parse_args():
