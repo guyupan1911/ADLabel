@@ -77,6 +77,20 @@ cc_binary(
 )
 
 cc_binary(
+    name = "matching_pair_search_cli",
+    srcs = [
+      "matching_pair_search_cli.cc",
+    ],
+    deps = [
+      "//mapping/common:file",
+      "//mapping/loop_closure:matching_pair_searcher",
+      "//mapping/protos:frame_cc_proto",
+      "@system_libs//:gflags",
+      "@system_libs//:glog",
+    ],
+)
+
+cc_binary(
     name = "pose_optimize_cli",
     srcs = [
       "pose_optimize_cli.cc",

@@ -229,6 +229,8 @@ def process_dump_root(dump_root):
     cloud_missing = 0
     lidar_nn_updated = 0
     lidar_nn_missing = 0
+    cumulative_distance = 0.0
+    previous_pose = None
 
     for frame in frames:
         sensor_counts[frame.sensor_name or "<missing>"] += 1
@@ -251,9 +253,17 @@ def process_dump_root(dump_root):
 
         pose = timeline.interpolate(frame.timestamp_ns)
         if pose is None:
+            frame.cumulative_distance = cumulative_distance
             pose_skipped += 1
             continue
+        if previous_pose is not None:
+            dx = pose.x - previous_pose.x
+            dy = pose.y - previous_pose.y
+            dz = pose.z - previous_pose.z
+            cumulative_distance += math.sqrt(dx * dx + dy * dy + dz * dz)
+        frame.cumulative_distance = cumulative_distance
         copy_pose(pose, frame.refined_pose_3d)
+        previous_pose = pose
         pose_updated += 1
 
     write_meta_file(meta_path, frames)
@@ -267,6 +277,7 @@ def process_dump_root(dump_root):
         f"refined_pose_3d: updated {pose_updated}/{len(frames)}, "
         f"skipped {pose_skipped} outside trajectory range"
     )
+    print(f"cumulative_distance: final {cumulative_distance:.3f} m")
     print(f"wrote metadata: {meta_path}")
 
 

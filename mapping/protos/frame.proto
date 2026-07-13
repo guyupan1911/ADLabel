@@ -11,6 +11,7 @@ message Frame {
   optional string prev_id = 3;
   optional string next_id = 4;
   optional int64 timestamp_ns = 5;
+  optional double cumulative_distance = 18;
 
   enum SensorType {
     UNKNOWN = 0;

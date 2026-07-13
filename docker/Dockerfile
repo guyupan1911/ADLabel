@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       nlohmann-json3-dev \
       libceres-dev \
       libtbb-dev \
+      libgeographic-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- GTSAM (build from source, no apt package for Ubuntu 22.04) ----

@@ -5,6 +5,7 @@
 #   OpenCV 4.5.x  (libopencv-dev)
 #   PCL 1.12.x    (libpcl-dev)
 #   Eigen 3.4.x   (libeigen3-dev)
+#   GeographicLib (libgeographic-dev)
 
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
@@ -53,6 +54,19 @@ cc_library(
     ]),
     includes = ["include"],
     linkopts = ["-ltbb"],
+    visibility = ["//visibility:public"],
+)
+
+
+# ---------------------------------------------------------------------------
+# GeographicLib
+# Headers live under /usr/include/GeographicLib/
+# ---------------------------------------------------------------------------
+cc_library(
+    name = "geographiclib",
+    hdrs = glob(["include/GeographicLib/**/*.hpp"]),
+    includes = ["include"],
+    linkopts = ["-lGeographic"],
     visibility = ["//visibility:public"],
 )
 
