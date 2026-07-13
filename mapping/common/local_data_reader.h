@@ -23,6 +23,9 @@ class LocalDataReader {
     bool ReadImage(const std::string& relative_path,
                    cv::Mat* image,
                    int flags = cv::IMREAD_UNCHANGED) const;
+
+    bool ReadBinaryFile(const std::string& relative_path,
+                        std::vector<char>* data) const;
     
     template <typename MessageT>
     std::vector<MessageT> ReadMetaData(const std::string& relative_path) const {

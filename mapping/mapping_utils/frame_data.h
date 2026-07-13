@@ -17,7 +17,8 @@ struct FrameData {
   std::vector<int> ground_indices;
   std::vector<int> non_ground_indices;
 
-  Eigen::Affine3d T_sensor_to_imu;
+  Eigen::Affine3d transform_from_sensor_to_imu;
+  Eigen::Affine3d pose_ecef;
 };
 
 }  // namespace mapping

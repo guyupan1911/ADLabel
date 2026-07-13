@@ -2,6 +2,7 @@
 
 import argparse
 import bisect
+from collections import Counter
 import math
 import struct
 import subprocess
@@ -10,40 +11,38 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+NSEC_PER_SEC = 1000000000
+
+
+def find_repo_root():
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "mapping" / "protos" / "frame.proto").is_file():
+            return parent
+    raise RuntimeError(f"failed to find ADLabel repo root from: {current}")
+
+
 def import_frame_pb2():
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = find_repo_root()
     pyproto_dir = repo_root / "pyproto"
     frame_proto = repo_root / "mapping" / "protos" / "frame.proto"
     frame_pb2_path = pyproto_dir / "mapping" / "protos" / "frame_pb2.py"
     export_script = repo_root / "tools" / "export_pyproto.sh"
 
-    def export_pyproto_if_needed():
-        needs_export = not frame_pb2_path.is_file()
-        if frame_pb2_path.is_file() and frame_proto.is_file():
-            needs_export = frame_proto.stat().st_mtime > frame_pb2_path.stat().st_mtime
-        if needs_export:
-            if not export_script.is_file():
-                raise ModuleNotFoundError(f"Python proto exporter not found: {export_script}") from None
-            subprocess.run([str(export_script), str(pyproto_dir)], cwd=repo_root, check=True)
+    needs_export = not frame_pb2_path.is_file()
+    if frame_pb2_path.is_file():
+        needs_export = frame_proto.stat().st_mtime > frame_pb2_path.stat().st_mtime
+    if needs_export:
+        if not export_script.is_file():
+            raise ModuleNotFoundError(f"Python proto exporter not found: {export_script}")
+        subprocess.run([str(export_script), str(pyproto_dir)], cwd=repo_root, check=True)
 
-    try:
-        from mapping.protos import frame_pb2
-        if "lidar_nn_uri" in frame_pb2.Frame.DESCRIPTOR.fields_by_name:
-            return frame_pb2
-    except ModuleNotFoundError:
-        pass
-
-    export_pyproto_if_needed()
-    sys.modules.pop("mapping.protos.frame_pb2", None)
     sys.path.insert(0, str(pyproto_dir))
     from mapping.protos import frame_pb2
     return frame_pb2
 
 
 frame_pb2 = import_frame_pb2()
-
-
-NSEC_PER_SEC = 1000000000
 
 
 @dataclass(frozen=True)
@@ -116,16 +115,22 @@ def interpolate_pose(left, right, timestamp_ns):
     if span <= 0:
         return left
     ratio = (timestamp_ns - left.timestamp_ns) / span
-    x = left.x + ratio * (right.x - left.x)
-    y = left.y + ratio * (right.y - left.y)
-    z = left.z + ratio * (right.z - left.z)
     qx, qy, qz, qw = slerp_quaternion(left, right, ratio)
-    return PoseSample(timestamp_ns, x, y, z, qx, qy, qz, qw)
+    return PoseSample(
+        timestamp_ns=timestamp_ns,
+        x=left.x + ratio * (right.x - left.x),
+        y=left.y + ratio * (right.y - left.y),
+        z=left.z + ratio * (right.z - left.z),
+        qx=qx,
+        qy=qy,
+        qz=qz,
+        qw=qw,
+    )
 
 
-def load_trajectory(path):
+def load_ecef_trajectory(path):
     samples = []
-    with Path(path).open("r", encoding="utf-8") as input_file:
+    with path.open("r", encoding="utf-8") as input_file:
         for line_no, line in enumerate(input_file, start=1):
             fields = line.strip().split()
             if not fields or not fields[0][0].isdigit():
@@ -149,7 +154,7 @@ def load_trajectory(path):
 
 def read_meta_file(path):
     frames = []
-    with Path(path).open("rb") as input_file:
+    with path.open("rb") as input_file:
         while True:
             length_bytes = input_file.read(4)
             if not length_bytes:
@@ -186,127 +191,96 @@ def copy_pose(pose, pose_message):
     pose_message.qw = pose.qw
 
 
-def update_refined_pose(metadata_path, trajectory_path):
-    timeline = load_trajectory(trajectory_path)
-    frames = read_meta_file(metadata_path)
-    if not frames:
-        raise RuntimeError(f"metadata has no frames: {metadata_path}")
+def process_dump_root(dump_root):
+    meta_path = dump_root / "metadata" / "lidar" / "lidar_plusai_unified.meta"
+    trajectory_path = dump_root / "offline_pose" / "gtsam_optim_rst_ecef.txt"
+    cloud_dir = dump_root / "sensor_data" / "lidar" / "lidar_plusai_unified_compensated"
+    lidar_nn_dir = dump_root / "pcd_segmentation" / "lidar_plusai_unified_compensated"
 
-    updated = 0
-    missing = 0
+    if not meta_path.is_file():
+        raise RuntimeError(f"lidar metadata file does not exist: {meta_path}")
+    if not trajectory_path.is_file():
+        raise RuntimeError(f"ECEF trajectory file does not exist: {trajectory_path}")
+
+    if not cloud_dir.is_dir():
+        raise RuntimeError(f"cloud directory does not exist: {cloud_dir}")
+    if not lidar_nn_dir.is_dir():
+        raise RuntimeError(f"lidar nn directory does not exist: {lidar_nn_dir}")
+
+    local_data_reader_root = dump_root.parent
+    timeline = load_ecef_trajectory(trajectory_path)
+    cloud_files = {}
+    for path in cloud_dir.iterdir():
+        if path.is_file() and path.suffix == ".pcd" and path.stem.isdigit():
+            cloud_files[int(path.stem)] = path
+
+    lidar_nn_files = {}
+    for path in lidar_nn_dir.iterdir():
+        if path.is_file() and path.suffix == ".bin" and path.stem.isdigit():
+            lidar_nn_files[int(path.stem)] = path
+    frames = read_meta_file(meta_path)
+    if not frames:
+        raise RuntimeError(f"metadata has no frames: {meta_path}")
+
+    sensor_counts = Counter()
+    pose_updated = 0
+    pose_skipped = 0
+    cloud_updated = 0
+    cloud_missing = 0
+    lidar_nn_updated = 0
+    lidar_nn_missing = 0
+
     for frame in frames:
+        sensor_counts[frame.sensor_name or "<missing>"] += 1
+
+        cloud_path = cloud_files.get(frame.timestamp_ns)
+        if cloud_path is None:
+            frame.ClearField("cloud_uri")
+            cloud_missing += 1
+        else:
+            frame.cloud_uri = cloud_path.relative_to(local_data_reader_root).as_posix()
+            cloud_updated += 1
+
+        lidar_nn_path = lidar_nn_files.get(frame.timestamp_ns)
+        if lidar_nn_path is None:
+            frame.ClearField("lidar_nn_uri")
+            lidar_nn_missing += 1
+        else:
+            frame.lidar_nn_uri = lidar_nn_path.relative_to(local_data_reader_root).as_posix()
+            lidar_nn_updated += 1
+
         pose = timeline.interpolate(frame.timestamp_ns)
         if pose is None:
-            missing += 1
+            pose_skipped += 1
             continue
         copy_pose(pose, frame.refined_pose_3d)
-        updated += 1
+        pose_updated += 1
 
-    write_meta_file(metadata_path, frames)
+    write_meta_file(meta_path, frames)
+
+    print("sensor_name frame counts:")
+    for sensor_name, count in sorted(sensor_counts.items()):
+        print(f"  {sensor_name}: {count}")
+    print(f"cloud_uri: updated {cloud_updated}/{len(frames)}, missing {cloud_missing}")
+    print(f"lidar_nn_uri: updated {lidar_nn_updated}/{len(frames)}, missing {lidar_nn_missing}")
     print(
-        f"updated refined_pose_3d for {updated} frames, "
-        f"skipped {missing} frames outside trajectory time range: {metadata_path}"
+        f"refined_pose_3d: updated {pose_updated}/{len(frames)}, "
+        f"skipped {pose_skipped} outside trajectory range"
     )
-
-
-def load_timestamp_uri_map(directory):
-    directory = Path(directory)
-    if not directory.is_dir():
-        raise RuntimeError(f"lidar nn directory does not exist: {directory}")
-
-    timestamp_to_uri = {}
-    duplicate_timestamps = set()
-    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
-        try:
-            timestamp_ns = int(path.stem)
-        except ValueError:
-            continue
-        if timestamp_ns in timestamp_to_uri:
-            duplicate_timestamps.add(timestamp_ns)
-            continue
-        timestamp_to_uri[timestamp_ns] = path.as_posix()
-
-    if duplicate_timestamps:
-        raise RuntimeError(
-            f"lidar nn directory has duplicate timestamp filenames, "
-            f"examples: {sorted(duplicate_timestamps)[:5]}"
-        )
-    if not timestamp_to_uri:
-        raise RuntimeError(f"lidar nn directory has no timestamp-named files: {directory}")
-    return timestamp_to_uri
-
-
-def update_lidar_nn_uri(metadata_path, lidar_nn_dir):
-    if "lidar_nn_uri" not in frame_pb2.Frame.DESCRIPTOR.fields_by_name:
-        raise RuntimeError(
-            "Frame proto has no lidar_nn_uri field. Regenerate pyproto after fixing frame.proto."
-        )
-
-    timestamp_to_uri = load_timestamp_uri_map(lidar_nn_dir)
-    frames = read_meta_file(metadata_path)
-    if not frames:
-        raise RuntimeError(f"metadata has no frames: {metadata_path}")
-
-    updated = 0
-    missing = 0
-    for frame in frames:
-        uri = timestamp_to_uri.get(frame.timestamp_ns)
-        if uri is None:
-            missing += 1
-            continue
-        frame.lidar_nn_uri = uri
-        updated += 1
-
-    write_meta_file(metadata_path, frames)
-    print(
-        f"updated lidar_nn_uri for {updated} frames, "
-        f"skipped {missing} frames without matching lidar nn file: {metadata_path}"
-    )
+    print(f"wrote metadata: {meta_path}")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Update fields in length-prefixed Frame metadata files."
+        description="Fill lidar_plusai_unified.meta Frame.refined_pose_3d from offline_pose/gtsam_optim_rst_ecef.txt."
     )
-    parser.add_argument(
-        "paths",
-        nargs="*",
-        type=Path,
-        help="Backward-compatible positional args: trajectory metadata",
-    )
-    parser.add_argument("--trajectory", type=Path, help="Vehicle trajectory txt file")
-    parser.add_argument("--metadata", type=Path, help="Length-prefixed Frame metadata file to update in place")
-    parser.add_argument(
-        "--lidar-nn-dir",
-        type=Path,
-        help="Directory containing timestamp-named lidar NN files to write into Frame.lidar_nn_uri",
-    )
+    parser.add_argument("dump_root", type=Path, help="Bag dump root directory")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-
-    if args.paths:
-        if len(args.paths) != 2:
-            raise RuntimeError("expected positional args: trajectory metadata")
-        if args.trajectory is None:
-            args.trajectory = args.paths[0]
-        if args.metadata is None:
-            args.metadata = args.paths[1]
-
-    if args.metadata is None:
-        raise RuntimeError("missing metadata path")
-
-    did_update = False
-    if args.trajectory is not None:
-        update_refined_pose(args.metadata, args.trajectory)
-        did_update = True
-    if args.lidar_nn_dir is not None:
-        update_lidar_nn_uri(args.metadata, args.lidar_nn_dir)
-        did_update = True
-    if not did_update:
-        raise RuntimeError("nothing to update; pass --trajectory and/or --lidar-nn-dir")
+    process_dump_root(args.dump_root)
 
 
 if __name__ == "__main__":

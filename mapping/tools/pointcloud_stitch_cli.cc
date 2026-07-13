@@ -78,58 +78,12 @@ PointCloudXYZIRT::Ptr CropSingleFrameCloud(const PointCloudXYZIRT::ConstPtr& clo
   return filtered;
 }
 
-void LogCloudBoundsBeforeDownsample(const PointCloudXYZIRT::ConstPtr& cloud,
-                                    double leaf_size) {
-  double min_x = std::numeric_limits<double>::max();
-  double min_y = std::numeric_limits<double>::max();
-  double min_z = std::numeric_limits<double>::max();
-  double max_x = std::numeric_limits<double>::lowest();
-  double max_y = std::numeric_limits<double>::lowest();
-  double max_z = std::numeric_limits<double>::lowest();
-  size_t finite_point_count = 0;
-
-  for (const auto& point : cloud->points) {
-    if (!std::isfinite(point.x) ||
-        !std::isfinite(point.y) ||
-        !std::isfinite(point.z)) {
-      continue;
-    }
-    min_x = std::min(min_x, static_cast<double>(point.x));
-    min_y = std::min(min_y, static_cast<double>(point.y));
-    min_z = std::min(min_z, static_cast<double>(point.z));
-    max_x = std::max(max_x, static_cast<double>(point.x));
-    max_y = std::max(max_y, static_cast<double>(point.y));
-    max_z = std::max(max_z, static_cast<double>(point.z));
-    ++finite_point_count;
-  }
-
-  if (finite_point_count == 0) {
-    LOG(WARNING) << "cloud bounds before downsample: total=" << cloud->size()
-                 << ", finite=0, invalid=" << cloud->size()
-                 << ", leaf_size=" << leaf_size;
-    return;
-  }
-
-  LOG(INFO) << "cloud bounds before downsample: total=" << cloud->size()
-            << ", finite=" << finite_point_count
-            << ", invalid=" << cloud->size() - finite_point_count
-            << ", leaf_size=" << leaf_size
-            << ", x=[" << min_x << ", " << max_x
-            << "], y=[" << min_y << ", " << max_y
-            << "], z=[" << min_z << ", " << max_z
-            << "], span=(" << max_x - min_x
-            << ", " << max_y - min_y
-            << ", " << max_z - min_z << ")";
-}
-
 PointCloudXYZIRT::Ptr DownsampleCloud(const PointCloudXYZIRT::ConstPtr& cloud, double leaf_size) {
   if (leaf_size <= 0.0) {
     PointCloudXYZIRT::Ptr copy(new PointCloudXYZIRT);
     *copy = *cloud;
     return copy;
   }
-
-  // LogCloudBoundsBeforeDownsample(cloud, leaf_size);
 
   pcl::VoxelGrid<PointXYZIRT> voxel_grid;
   voxel_grid.setInputCloud(cloud);
@@ -175,27 +129,6 @@ bool SaveStitchedCloud(const PointCloudXYZIRT::ConstPtr& stitched_cloud,
   return true;
 }
 
-SimplePose3DInterpolator BuildLocalizationPoseInterpolator(
-    const std::vector<Frame>& lidar_frames) {
-  SimplePose3DInterpolator interpolator;
-  size_t valid_pose_count = 0;
-
-  for (const auto& frame : lidar_frames) {
-    const Pose3DMessage* localization_pose = GetLocalizationPose(frame);
-    if (localization_pose == nullptr) {
-      continue;
-    }
-    interpolator.InsertTimestampedPose(
-        frame.timestamp_ns(), Pose3D(*localization_pose));
-    ++valid_pose_count;
-  }
-
-  LOG(INFO) << "built " << LocalizationPoseName()
-            << " interpolator with " << valid_pose_count
-            << " poses from " << lidar_frames.size() << " lidar frames";
-  return interpolator;
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -207,9 +140,6 @@ int main(int argc, char** argv) {
   auto lidar_frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
   LOG(INFO) << "lidar_frames size: " << lidar_frames.size();
   LOG(INFO) << "localization pose source: " << LocalizationPoseName();
-  const SimplePose3DInterpolator localization_pose_interpolator =
-      BuildLocalizationPoseInterpolator(lidar_frames);
-
   const std::filesystem::path output_dir(FLAGS_output_dir);
   std::error_code error;
   std::filesystem::create_directories(output_dir, error);
@@ -248,12 +178,7 @@ int main(int argc, char** argv) {
     }
 
     FrameData lidar_frame_data;
-    if (!GenerateLidarFrameData(
-            frame,
-            &lidar_frame_data,
-            data_reader,
-            &localization_pose_interpolator,
-            true)) {
+    if (!GenerateLidarFrameData(frame, &lidar_frame_data, data_reader)) {
       LOG(ERROR) << "failed to generate lidar frame data: " << frame.fid();
       continue;
     }
@@ -294,7 +219,7 @@ int main(int argc, char** argv) {
     }
 
     const Eigen::Affine3d lidar_to_first_imu =
-        first_imu_pose_inv * current_imu_pose * lidar_frame_data.T_sensor_to_imu;
+        first_imu_pose_inv * current_imu_pose * lidar_frame_data.transform_from_sensor_to_imu;
 
     PointCloudXYZIRT::Ptr transformed(new PointCloudXYZIRT);
     pcl::transformPointCloud(*cloud, *transformed, lidar_to_first_imu.cast<float>());

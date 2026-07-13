@@ -1,5 +1,7 @@
 #include "mapping/common/local_data_reader.h"
 
+#include <fstream>
+
 #include <glog/logging.h>
 #include <pcl/io/pcd_io.h>
 
@@ -43,6 +45,34 @@ bool LocalDataReader::ReadImage(const std::string& relative_path, cv::Mat* image
         return false;
     }
 
+    return true;
+}
+
+bool LocalDataReader::ReadBinaryFile(const std::string& relative_path,
+                                    std::vector<char>* data) const {
+    CHECK(data != nullptr);
+    data->clear();
+
+    const auto path = data_root_ / relative_path;
+    if (!std::filesystem::exists(path)) {
+        LOG(ERROR) << "Binary file does not exist: " << path.string();
+        return false;
+    }
+
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input) {
+        LOG(ERROR) << "Failed to open binary file: " << path.string();
+        return false;
+    }
+
+    const std::streamsize size = input.tellg();
+    input.seekg(0, std::ios::beg);
+    data->resize(static_cast<std::size_t>(size));
+    if (size > 0 && !input.read(data->data(), size)) {
+        LOG(ERROR) << "Failed to read binary file: " << path.string();
+        data->clear();
+        return false;
+    }
     return true;
 }
 
