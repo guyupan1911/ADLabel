@@ -93,7 +93,8 @@ RUN pip3 install --no-cache-dir \
       cmake-format \
       numpy \
       matplotlib \
-      protobuf==6.33.4
+      protobuf==6.33.4 \
+      folium
 
 # ---- Non-root user matching host UID/GID (set via docker compose build args) ----
 ARG USER_NAME=dev
