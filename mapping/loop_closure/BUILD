@@ -8,6 +8,8 @@ cc_library(
     hdrs = ["matching_pair_searcher.h"],
     deps = [
         "//mapping/protos:frame_cc_proto",
+        "//mapping/protos:frame_pair_cc_proto",
+        "//mapping/common:pose3d",
         "@system_libs//:glog",
         "@system_libs//:eigen",
         "@system_libs//:geographiclib",

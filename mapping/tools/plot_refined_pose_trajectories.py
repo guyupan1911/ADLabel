@@ -16,7 +16,7 @@ COLORS = [
 ]
 
 
-def import_frame_pb2():
+def import_proto_modules():
     current = Path(__file__).resolve()
     repo_root = None
     for parent in current.parents:
@@ -28,12 +28,19 @@ def import_frame_pb2():
 
     pyproto_dir = repo_root / "pyproto"
     frame_proto = repo_root / "mapping" / "protos" / "frame.proto"
+    frame_pair_proto = repo_root / "mapping" / "protos" / "frame_pair.proto"
     frame_pb2_path = pyproto_dir / "mapping" / "protos" / "frame_pb2.py"
+    frame_pair_pb2_path = pyproto_dir / "mapping" / "protos" / "frame_pair_pb2.py"
     export_script = repo_root / "tools" / "export_pyproto.sh"
 
-    needs_export = not frame_pb2_path.is_file()
+    needs_export = (
+        not frame_pb2_path.is_file()
+        or not frame_pair_pb2_path.is_file()
+    )
     if frame_pb2_path.is_file():
-        needs_export = frame_proto.stat().st_mtime > frame_pb2_path.stat().st_mtime
+        needs_export = needs_export or frame_proto.stat().st_mtime > frame_pb2_path.stat().st_mtime
+    if frame_pair_pb2_path.is_file():
+        needs_export = needs_export or frame_pair_proto.stat().st_mtime > frame_pair_pb2_path.stat().st_mtime
     if needs_export:
         if not export_script.is_file():
             raise ModuleNotFoundError(f"Python proto exporter not found: {export_script}")
@@ -41,10 +48,11 @@ def import_frame_pb2():
 
     sys.path.insert(0, str(pyproto_dir))
     from mapping.protos import frame_pb2
-    return frame_pb2
+    from mapping.protos import frame_pair_pb2
+    return frame_pb2, frame_pair_pb2
 
 
-frame_pb2 = import_frame_pb2()
+frame_pb2, frame_pair_pb2 = import_proto_modules()
 
 
 def read_frame_metadata(path):
@@ -64,6 +72,31 @@ def read_frame_metadata(path):
             frame.ParseFromString(payload)
             frames.append(frame)
     return frames
+
+
+def load_matching_frame_pairs(matching_dir):
+    if matching_dir is None:
+        return []
+
+    matching_dir = Path(matching_dir)
+    if not matching_dir.is_dir():
+        raise RuntimeError(f"matching_dir is not a directory: {matching_dir}")
+
+    frame_pairs = []
+    for matching_path in sorted(matching_dir.glob("*.bin")):
+        frame_pair = frame_pair_pb2.FramePair()
+        frame_pair.ParseFromString(matching_path.read_bytes())
+        if not frame_pair.HasField("from_frame") or not frame_pair.HasField("to_frame"):
+            print(f"warning: skip FramePair missing from_frame/to_frame: {matching_path}")
+            continue
+        if (not frame_pair.from_frame.HasField("refined_pose_3d")
+                or not frame_pair.to_frame.HasField("refined_pose_3d")):
+            print(f"warning: skip FramePair missing refined_pose_3d: {matching_path}")
+            continue
+        frame_pairs.append((matching_path, frame_pair))
+
+    print(f"loaded {len(frame_pairs)} matching frame pairs from {matching_dir}")
+    return frame_pairs
 
 
 def ecef_to_lla(x, y, z):
@@ -109,15 +142,30 @@ def load_refined_pose_trajectories(metadata_paths):
 
     if not trajectories:
         raise RuntimeError("no valid refined_pose_3d trajectory found")
-    return trajectories
+    if origin is None:
+        raise RuntimeError("no trajectory origin found")
+    return trajectories, origin
 
 
-def save_png(trajectories, output_png):
+def frame_local_point(frame, origin):
+    pose = frame.refined_pose_3d
+    return pose.x - origin[0], pose.y - origin[1]
+
+
+def frame_map_point(frame):
+    pose = frame.refined_pose_3d
+    lat, lon, _ = ecef_to_lla(pose.x, pose.y, pose.z)
+    return lat, lon
+
+
+def save_png(trajectories, output_png, matching_frame_pairs=None, origin=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(12, 10))
+    matching_frame_pairs = matching_frame_pairs or []
+
     for index, (label, local_points, _, metadata_path) in enumerate(trajectories):
         xs = [point[0] for point in local_points]
         ys = [point[1] for point in local_points]
@@ -126,6 +174,22 @@ def save_png(trajectories, output_png):
         ax.scatter(xs[0], ys[0], s=18, marker="o", color=color)
         ax.scatter(xs[-1], ys[-1], s=24, marker="x", color=color)
         print(f"{metadata_path}: plotted {len(local_points)} refined poses as {label}")
+
+    if matching_frame_pairs:
+        if origin is None:
+            raise RuntimeError("origin is required when plotting matching frame pairs")
+        for matching_path, frame_pair in matching_frame_pairs:
+            from_point = frame_local_point(frame_pair.from_frame, origin)
+            to_point = frame_local_point(frame_pair.to_frame, origin)
+            ax.plot(
+                [from_point[0], to_point[0]],
+                [from_point[1], to_point[1]],
+                color="#111111",
+                linewidth=0.8,
+                alpha=0.45,
+                linestyle="--",
+            )
+        print(f"plotted {len(matching_frame_pairs)} matching frame pairs on png")
 
     ax.set_title("refined_pose_3d trajectories")
     ax.set_xlabel("x relative to first trajectory origin (m)")
@@ -142,7 +206,7 @@ def save_png(trajectories, output_png):
     print(f"saved trajectory png: {output_png}")
 
 
-def save_html(trajectories, output_html, satellite=False):
+def save_html(trajectories, output_html, satellite=False, matching_frame_pairs=None):
     import folium
 
     first_lat, first_lon = trajectories[0][2][0]
@@ -158,6 +222,7 @@ def save_html(trajectories, output_html, satellite=False):
     else:
         map_view = folium.Map(location=[first_lat, first_lon], zoom_start=18)
 
+    matching_frame_pairs = matching_frame_pairs or []
     all_points = []
     for index, (label, _, map_points, _) in enumerate(trajectories):
         color = COLORS[index % len(COLORS)]
@@ -183,6 +248,25 @@ def save_html(trajectories, output_html, satellite=False):
         ).add_to(map_view)
         all_points.extend(map_points)
 
+    if matching_frame_pairs:
+        matching_group = folium.FeatureGroup(name="matching frame pairs", show=True)
+        for matching_path, frame_pair in matching_frame_pairs:
+            from_point = frame_map_point(frame_pair.from_frame)
+            to_point = frame_map_point(frame_pair.to_frame)
+            tooltip = (
+                f"{frame_pair.from_frame.fid} -> {frame_pair.to_frame.fid} "
+                f"({matching_path.name})"
+            )
+            folium.PolyLine(
+                locations=[from_point, to_point],
+                color="#111111",
+                weight=2,
+                opacity=0.65,
+                tooltip=tooltip,
+            ).add_to(matching_group)
+            all_points.extend([from_point, to_point])
+        matching_group.add_to(map_view)
+
     if all_points:
         min_lat = min(point[0] for point in all_points)
         max_lat = max(point[0] for point in all_points)
@@ -197,13 +281,28 @@ def save_html(trajectories, output_html, satellite=False):
     print(f"saved trajectory html: {output_html}")
 
 
-def plot_refined_pose_trajectories(metadata_paths, output_dir):
+def plot_refined_pose_trajectories(metadata_paths, output_dir, matching_dir=None):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    trajectories = load_refined_pose_trajectories(metadata_paths)
-    save_png(trajectories, output_dir / "refined_pose_trajectories.png")
-    save_html(trajectories, output_dir / "refined_pose_trajectories.html")
-    save_html(trajectories, output_dir / "refined_pose_trajectories_satellite.html", satellite=True)
+    trajectories, origin = load_refined_pose_trajectories(metadata_paths)
+    matching_frame_pairs = load_matching_frame_pairs(matching_dir)
+    save_png(
+        trajectories,
+        output_dir / "refined_pose_trajectories.png",
+        matching_frame_pairs=matching_frame_pairs,
+        origin=origin,
+    )
+    save_html(
+        trajectories,
+        output_dir / "refined_pose_trajectories.html",
+        matching_frame_pairs=matching_frame_pairs,
+    )
+    save_html(
+        trajectories,
+        output_dir / "refined_pose_trajectories_satellite.html",
+        satellite=True,
+        matching_frame_pairs=matching_frame_pairs,
+    )
 
 
 def parse_args():
@@ -212,12 +311,13 @@ def parse_args():
     )
     parser.add_argument("metadata", nargs="+", type=Path, help="Frame metadata files")
     parser.add_argument("--output_dir", required=True, type=Path, help="Directory to save PNG and HTML")
+    parser.add_argument("--matching_dir", type=Path, help="Directory containing serialized FramePair .bin files")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    plot_refined_pose_trajectories(args.metadata, args.output_dir)
+    plot_refined_pose_trajectories(args.metadata, args.output_dir, args.matching_dir)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package adlabel.mapping;
+
+import "mapping/protos/frame.proto";
+import "mapping/protos/pose.proto";
+
+message FramePair {
+    optional Frame from_frame = 1;
+    optional Frame to_frame = 2;
+
+    repeated Frame from_local_frames = 3;
+    repeated Pose3DMessage from_relative_poses = 4;
+    repeated Frame to_local_frames = 5;
+    repeated Pose3DMessage to_relative_poses = 6; 
+}

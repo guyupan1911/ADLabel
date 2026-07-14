@@ -85,6 +85,7 @@ cc_binary(
       "//mapping/common:file",
       "//mapping/loop_closure:matching_pair_searcher",
       "//mapping/protos:frame_cc_proto",
+      "//mapping/protos:frame_pair_cc_proto",
       "@system_libs//:gflags",
       "@system_libs//:glog",
     ],

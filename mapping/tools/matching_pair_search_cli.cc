@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -10,8 +11,10 @@
 #include "mapping/common/file.h"
 #include "mapping/loop_closure/matching_pair_searcher.h"
 #include "mapping/protos/frame.pb.h"
+#include "mapping/protos/frame_pair.pb.h"
 
 DEFINE_string(data_roots, "", "comma-separated bag dump root directories");
+DEFINE_string(output_dir, "", "directory to save serialized FramePair proto bin files");
 
 namespace adlabel {
 namespace mapping {
@@ -21,6 +24,7 @@ constexpr char kLidarMetadataPath[] = "metadata/lidar/lidar_plusai_unified.meta"
 
 int Run() {
   CHECK(!FLAGS_data_roots.empty()) << "--data_roots is required";
+  CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
 
   std::vector<std::filesystem::path> data_roots;
   std::stringstream stream(FLAGS_data_roots);
@@ -31,6 +35,12 @@ int Run() {
     }
   }
   CHECK(!data_roots.empty()) << "--data_roots has no valid entries";
+
+  const std::filesystem::path output_dir(FLAGS_output_dir);
+  std::error_code error;
+  std::filesystem::create_directories(output_dir, error);
+  CHECK(!error) << "failed to create output_dir: " << output_dir.string()
+                << ", error: " << error.message();
 
   MatchingPairSearcher searcher;
 
@@ -51,6 +61,24 @@ int Run() {
       searcher.AddFrame(frame);
     }
   }
+
+  std::vector<FramePair> frame_pairs;
+  searcher.FindFramePairs(&frame_pairs);
+
+  for (const auto& frame_pair : frame_pairs) {
+    CHECK(frame_pair.has_from_frame()) << "FramePair missing from_frame";
+    CHECK(frame_pair.has_to_frame()) << "FramePair missing to_frame";
+    const std::string file_name =
+        frame_pair.from_frame().fid() + "__" + frame_pair.to_frame().fid() + ".bin";
+    const std::filesystem::path output_path = output_dir / file_name;
+
+    std::ofstream ofs(output_path, std::ios::binary | std::ios::trunc);
+    CHECK(ofs.is_open()) << "failed to open output file: " << output_path.string();
+    CHECK(frame_pair.SerializeToOstream(&ofs))
+        << "failed to serialize FramePair to: " << output_path.string();
+  }
+  LOG(INFO) << "saved frame_pairs size: " << frame_pairs.size()
+            << " to " << output_dir.string();
 
   return 0;
 }
