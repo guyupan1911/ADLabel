@@ -1,7 +1,5 @@
 #pragma once
 
-#include <vector>
-
 #include <Eigen/Dense>
 
 #include "mapping/common/pcl_types.h"
@@ -13,9 +11,6 @@ struct FrameData {
   using Cloud = PointCloudXYZIRT;
 
   Cloud::Ptr raw_cloud;
-
-  std::vector<int> ground_indices;
-  std::vector<int> non_ground_indices;
 
   Eigen::Affine3d transform_from_sensor_to_imu;
   Eigen::Affine3d pose_ecef;

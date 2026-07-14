@@ -83,11 +83,15 @@ cc_binary(
     ],
     deps = [
       "//mapping/common:file",
+      "//mapping/common:local_data_reader",
+      "//mapping/loop_closure:base_loop_verifier",
       "//mapping/loop_closure:matching_pair_searcher",
       "//mapping/protos:frame_cc_proto",
       "//mapping/protos:frame_pair_cc_proto",
       "@system_libs//:gflags",
       "@system_libs//:glog",
+      "@system_libs//:opencv",
+      "@system_libs//:pcl",
     ],
 )
 

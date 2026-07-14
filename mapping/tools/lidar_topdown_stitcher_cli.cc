@@ -26,6 +26,8 @@ DEFINE_double(resolution, 0.05, "topdown image resolution, meters per pixel");
 DEFINE_double(margin_meters, 50.0, "extra margin around trajectory bounds");
 DEFINE_double(distance, 0.0,
               "trajectory split distance in meters, 0 disables splitting");
+DEFINE_string(aggregation_mode, "mean",
+              "intensity aggregation mode for stitching: mean or max");
 
 namespace adlabel {
 namespace mapping {
@@ -38,12 +40,27 @@ struct LocalFramePose {
     Eigen::Vector2d origin_xy{0.0, 0.0};
 };
 
+LidarLosslessMapNode::IntensityAggregationMode ParseAggregationMode(
+        const std::string& mode) {
+    if (mode == "mean") {
+        return LidarLosslessMapNode::IntensityAggregationMode::kMean;
+    }
+    if (mode == "max") {
+        return LidarLosslessMapNode::IntensityAggregationMode::kMax;
+    }
+    LOG(FATAL) << "unsupported --aggregation_mode=" << mode
+               << ", expected mean or max";
+    return LidarLosslessMapNode::IntensityAggregationMode::kMean;
+}
+
 int Run() {
     CHECK(!FLAGS_data_root.empty()) << "--data_root is required";
     CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
     CHECK_GT(FLAGS_resolution, 0.0) << "--resolution must be positive";
     CHECK_GE(FLAGS_margin_meters, 0.0) << "--margin_meters must be non-negative";
     CHECK_GE(FLAGS_distance, 0.0) << "--distance must be non-negative";
+    const LidarLosslessMapNode::IntensityAggregationMode aggregation_mode =
+            ParseAggregationMode(FLAGS_aggregation_mode);
 
     const std::filesystem::path data_root(FLAGS_data_root);
     const std::filesystem::path output_dir(FLAGS_output_dir);
@@ -153,7 +170,7 @@ int Run() {
         LidarLosslessMapNode node;
         node.Init(grid_frame,
                   LidarLosslessMapNode::IntensityMappingMode::kLogarithmic,
-                  LidarLosslessMapNode::IntensityAggregationMode::kMean);
+                  aggregation_mode);
 
         size_t processed_frames = 0;
         for (const size_t frame_index : segment) {

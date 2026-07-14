@@ -55,5 +55,6 @@ cc_library(
     "//mapping/protos:lidar_detection_3d_cc_proto",
     "@system_libs//:eigen",
     "@system_libs//:glog",
+    "@system_libs//:pcl",
   ],
 )

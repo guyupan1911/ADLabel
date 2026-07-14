@@ -15,13 +15,14 @@ namespace mapping {
 void MatchingPairSearcher::AddFrame(const Frame& frame) {
   const auto& trip_id = frame.trip_id();
   const auto& fid = frame.fid();
-  // LOG(INFO) << "trip id: " << trip_id;
-  // LOG(INFO) << "fid: " << fid;
 
   if (!frame.has_refined_pose_3d()) {
-    LOG(INFO) << "skip frame wo refined_pose_3d";
     return;
   }
+
+  const bool has_lidar_cloud =
+      frame.has_cloud_uri() && !frame.cloud_uri().empty() &&
+      frame.has_sensor_to_imu_extrinsic();
 
   const auto& pose_ecef = frame.refined_pose_3d();
   double lat = 0.0;
@@ -40,9 +41,13 @@ void MatchingPairSearcher::AddFrame(const Frame& frame) {
   double up = 0.0;
   local_cartesian_.Forward(lat, lon, height, east, north, up);
 
-  trips_[trip_id].emplace(fid);
   frames_[fid] = frame;
   enu_coords_[fid] = Eigen::Vector3d(east, north, up);
+
+  if (!has_lidar_cloud) {
+    return;
+  }
+  trips_[trip_id].emplace(fid);
 }
 
 void MatchingPairSearcher::FindFramePairs(std::vector<FramePair>* frame_pairs) {
@@ -60,7 +65,6 @@ void MatchingPairSearcher::FindFramePairs(std::vector<FramePair>* frame_pairs) {
 
   GenerateFramePairs(frame_id_pairs, frame_pairs);
 
-  LOG(INFO) << "frame_id_pairs size: " << frame_id_pairs.size();
 }
 
 void MatchingPairSearcher::FindFramePairsBetweenTwoTrips(
@@ -142,7 +146,6 @@ void MatchingPairSearcher::GenerateFramePairs(
     std::vector<Pose3DMessage> local_relative_poses;
     CollectLocalFrames(frame_id_pair.first, &local_frames, &local_relative_poses);
     CHECK(local_frames.size() == local_relative_poses.size());
-    // LOG(INFO) << "from local_frame size: " << local_frames.size();
     for (size_t i = 0; i < local_frames.size(); ++i) {
       frame_pair.add_from_local_frames()->CopyFrom(local_frames[i]);
       frame_pair.add_from_relative_poses()->CopyFrom(local_relative_poses[i]);
@@ -154,7 +157,6 @@ void MatchingPairSearcher::GenerateFramePairs(
     local_relative_poses.clear();
     CollectLocalFrames(frame_id_pair.second, &local_frames, &local_relative_poses);
     CHECK(local_frames.size() == local_relative_poses.size());
-    // LOG(INFO) << "to local_frame size: " << local_frames.size();
     for (size_t i = 0; i < local_frames.size(); ++i) {
       frame_pair.add_to_local_frames()->CopyFrom(local_frames[i]);
       frame_pair.add_to_relative_poses()->CopyFrom(local_relative_poses[i]);
@@ -182,11 +184,13 @@ void MatchingPairSearcher::CollectLocalFrames(
     }
     
     double distance = (enu_coords_.at(iter->second.fid()) - prev_coords).norm();
-    if (distance > 1.0) {
+    if (distance > 1.0 && iter->second.has_cloud_uri() &&
+        !iter->second.cloud_uri().empty() &&
+        iter->second.has_sensor_to_imu_extrinsic()) {
       local_frames->push_back(iter->second);
       prev_coords = enu_coords_.at(iter->second.fid());
       Pose3D current_pose = Pose3D(iter->second.refined_pose_3d());
-      Eigen::Affine3d T_reference_current = 
+      Eigen::Affine3d T_reference_current =
         reference_pose.GetAffine3D().inverse() * current_pose.GetAffine3D();
       local_relative_poses->push_back(
         Pose3D(T_reference_current).GetPose3DMessage());
@@ -205,11 +209,13 @@ void MatchingPairSearcher::CollectLocalFrames(
     }
     
     double distance = (enu_coords_.at(iter->second.fid()) - prev_coords).norm();
-    if (distance > 1.0) {
+    if (distance > 1.0 && iter->second.has_cloud_uri() &&
+        !iter->second.cloud_uri().empty() &&
+        iter->second.has_sensor_to_imu_extrinsic()) {
       local_frames->push_back(iter->second);
       prev_coords = enu_coords_.at(iter->second.fid());
       Pose3D current_pose = Pose3D(iter->second.refined_pose_3d());
-      Eigen::Affine3d T_reference_current = 
+      Eigen::Affine3d T_reference_current =
         reference_pose.GetAffine3D().inverse() * current_pose.GetAffine3D();
       local_relative_poses->push_back(
         Pose3D(T_reference_current).GetPose3DMessage());
