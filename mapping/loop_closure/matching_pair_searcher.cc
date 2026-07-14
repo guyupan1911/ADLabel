@@ -112,10 +112,10 @@ void MatchingPairSearcher::FindFramePairsBetweenTwoTrips(
       const auto& frame_1_exist = frame_pair_exist.first;
       const auto& frame_2_exist = frame_pair_exist.second;
       double cumulative_distance_1 =
-        std::fabs(frames_.at(frame_1).cumulative_distance() -
+        std::abs(frames_.at(frame_1).cumulative_distance() -
                   frames_.at(frame_1_exist).cumulative_distance());
       double cumulative_distance_2 =
-        std::fabs(frames_.at(frame_2).cumulative_distance() -
+        std::abs(frames_.at(frame_2).cumulative_distance() -
                   frames_.at(frame_2_exist).cumulative_distance());
       if (cumulative_distance_1 < 20.0 || cumulative_distance_2 < 20.0) {
         is_duplicated = true;
