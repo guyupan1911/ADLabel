@@ -39,6 +39,24 @@ cc_binary(
 )
 
 cc_binary(
+    name = "lidar_topdown_stitcher_cli_multi_trips_cli",
+    srcs = [
+      "lidar_topdown_stitcher_cli_multi_trips_cli.cc",
+    ],
+    deps = [
+      "//mapping/common:local_data_reader",
+      "//mapping/common:pose3d",
+      "//mapping/lidar_topdown:lidar_topdown",
+      "//mapping/mapping_utils:stitch_utils",
+      "//mapping/protos:frame_cc_proto",
+      "@system_libs//:eigen",
+      "@system_libs//:gflags",
+      "@system_libs//:glog",
+      "@system_libs//:opencv",
+    ],
+)
+
+cc_binary(
     name = "lidar_camera_fusion_cli",
     srcs = [
       "lidar_camera_fusion_cli.cc",
@@ -55,6 +73,21 @@ cc_binary(
       "@system_libs//:gflags",
       "@system_libs//:glog",
       "@system_libs//:opencv",
+    ],
+)
+
+cc_binary(
+    name = "matching_pair_search_cli",
+    srcs = [
+      "matching_pair_search_cli.cc",
+    ],
+    deps = [
+      "//mapping/common:file",
+      "//mapping/loop_closure:matching_pair_searcher",
+      "//mapping/protos:frame_cc_proto",
+      "//mapping/protos:frame_pair_cc_proto",
+      "@system_libs//:gflags",
+      "@system_libs//:glog",
     ],
 )
 

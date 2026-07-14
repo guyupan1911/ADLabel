@@ -38,3 +38,12 @@ proto_gen(
     name = "localization",
     srcs = ["localization.proto"],
 )
+proto_gen(
+    name = "frame_pair",
+    srcs = ["frame_pair.proto"],
+    deps = [
+        ":frame",
+        ":pose",
+    ],
+)
+
