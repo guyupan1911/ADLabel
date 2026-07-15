@@ -84,8 +84,8 @@ pcl::PointCloud<PointXYZIRT>::Ptr BaseLoopVerifier::StitchLocalMap(
   CHECK(local_data_reader_ != nullptr);
   CHECK_EQ(frames.size(), relative_poses.size())
       << "local frame count must match relative pose count";
-  LOG(INFO) << "frames size: " << frames.size();
-  
+  // LOG(INFO) << "frames size: " << frames.size();
+
   const Eigen::Affine3d T_ecef_reference =
       Pose3D(reference_frame.refined_pose_3d()).GetAffine3D();
   const Eigen::Vector3d reference_ecef = T_ecef_reference.translation();
