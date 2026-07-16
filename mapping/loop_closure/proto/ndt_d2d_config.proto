@@ -19,4 +19,5 @@ message NdtD2DConfig {
   optional int32 covariance_resolution_index = 3;
   optional double covariance_neighbor_radius = 4;
   optional int32 covariance_neighbor_count = 5;
+  optional int32 num_threads = 6;
 }

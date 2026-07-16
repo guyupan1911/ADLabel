@@ -95,14 +95,56 @@ bool NdtD2D::Align(const Eigen::Affine3d& init_pose, double* inlier_ratio,
   return true;
 }
 
-void NdtD2D::CompuateCovariance(Eigen::Matrix3d* rotation_covariance,
-                                Eigen::Matrix3d* translation_covariance) {
+void NdtD2D::CompuateCovariance(Eigen::Matrix3d* orientation_covariance,
+                                Eigen::Matrix3d* position_covariance) {
   ceres::Problem problem;
-  BuildProblem(config_.covariance_resolution_index,
-               config_.covariance_neighbor_radius,
-               config_.covariance_neighbor_count,
+  BuildProblem(config_.covariance_resolution_index(),
+               config_.covariance_neighbor_radius(),
+               config_.covariance_neighbor_count(),
                &problem, nullptr);
+
+  const int residual_block_count = problem.NumResidualBlocks();
+  if (residual_block_count == 0) {
+    orientation_covariance->setIdentity();
+    position_covariance->setIdentity();
+    return;
+  }
+
+  ceres::Covariance::Options cov_options;
+  cov_options.num_threads = config_.num_threads();
+  cov_options.algorithm_type = ceres::DENSE_SVD;
+  ceres::Covariance covariance(cov_options);
   
+  std::vector<std::pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.emplace_back(aligned_rotation_.coeffs().data(),
+                                 aligned_rotation_.coeffs().data());
+  covariance_blocks.emplace_back(aligned_translation_.data(),
+                                 aligned_translation_.data());
+
+  if (!covariance.Compute(covariance_blocks, &problem)) {
+    LOG(ERROR) << "Failed to compute covariance. Discarding this loop pair.";
+    orientation_covariance->setIdentity();
+    position_covariance->setIdentity();
+    return;
+  }
+
+  Eigen::Matrix<double, 3, 3, Eigen::RowMajor> rotation_cov;
+  Eigen::Matrix<double, 3, 3, Eigen::RowMajor> translation_cov;
+
+  covariance.GetCovarianceBlockInTangentSpace(aligned_rotation_.coeffs().data(),
+                                              aligned_rotation_.coeffs().data(),
+                                              rotation_cov.data());
+  covariance.GetCovarianceBlockInTangentSpace(aligned_translation_.data(),
+                                              aligned_translation_.data(),
+                                              translation_cov.data());
+
+
+
+  constexpr double kCovarianceCoeff = 1e-2;
+  *orientation_covariance =
+      rotation_cov * residual_block_count * kCovarianceCoeff;
+  *position_covariance =
+      translation_cov * residual_block_count * kCovarianceCoeff;
 }
 
 bool NdtD2D::IsVoxelGridCovarianceValid(
@@ -131,7 +173,7 @@ int NdtD2D::AlignOnce(const size_t resolution_index) {
 
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_QR;
-  options.num_threads = 2;
+  options.num_threads = config_.num_threads();
   options.initial_trust_region_radius = 1e6;
   ceres::Solver::Summary summary;
 

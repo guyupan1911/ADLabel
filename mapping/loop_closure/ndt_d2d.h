@@ -28,8 +28,8 @@ class NdtD2D {
   bool Align(const Eigen::Affine3d& init_pose, double* inlier_ratio,
              int* iterations, Eigen::Affine3d* pose);
 
-  void CompuateCovariance(Eigen::Matrix3d* rotation_covariance,
-                          Eigen::Matrix3d* translation_covariance);
+  void CompuateCovariance(Eigen::Matrix3d* orientation_covariance,
+                          Eigen::Matrix3d* position_covariance);
 
  private:
   bool IsVoxelGridCovarianceValid(VoxelGridCovariance* voxels);

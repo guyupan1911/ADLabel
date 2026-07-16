@@ -176,6 +176,13 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
               << ", iterations=" << num_iterations;
   }
 
+  Eigen::Matrix3d orientation_covariance;
+  Eigen::Matrix3d position_covariance;
+  ndt_d2d.CompuateCovariance(&orientation_covariance, &position_covariance);
+
+  LOG(ERROR) << "orientation_covariance: \n" << orientation_covariance;
+  LOG(ERROR) << "position_covariance: \n" << position_covariance;
+
   cv::Mat merge_after_refine_image;
   const auto generate_after_image_start = std::chrono::steady_clock::now();
   GenerateFramePairTopdownImages(refined_pose, &source_topdown_image,
@@ -191,6 +198,8 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
   loop_verifier_result->refined_pose = refined_pose;
   loop_verifier_result->inlier_ratio = inlier_ratio;
   loop_verifier_result->num_iterations = num_iterations;
+  loop_verifier_result->orientation_covariance = orientation_covariance;
+  loop_verifier_result->position_covariance = position_covariance;
   loop_verifier_result->source_topdown_image = source_topdown_image;
   loop_verifier_result->target_topdown_image = target_topdown_image;
   loop_verifier_result->merge_before_refine_image = merge_before_refine_image;

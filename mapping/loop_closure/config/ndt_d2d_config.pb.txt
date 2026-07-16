@@ -18,3 +18,5 @@ max_num_iterations: 10
 covariance_resolution_index: 1
 covariance_neighbor_radius: 3.0
 covariance_neighbor_count: 1
+
+num_threads: 16

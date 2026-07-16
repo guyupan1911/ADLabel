@@ -24,6 +24,9 @@ struct LoopVerifierResult {
   double inlier_ratio = 0.0;
   int num_iterations = 0;
 
+  Eigen::Matrix3d orientation_covariance;
+  Eigen::Matrix3d position_covariance;
+
   cv::Mat source_topdown_image;
   cv::Mat target_topdown_image;
   cv::Mat merge_before_refine_image;
