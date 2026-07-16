@@ -5,7 +5,8 @@
 #include <vector>
 
 #include <glog/logging.h>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 #include "mapping/common/file.h"
 #include "mapping/common/pcl_types.h"

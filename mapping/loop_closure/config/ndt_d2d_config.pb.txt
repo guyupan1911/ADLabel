@@ -1,0 +1,20 @@
+resolutions {
+    resolution: 9.0
+    loss: NDT_D2D_CAUCHY_LOSS
+}
+
+resolutions {
+    resolution: 3.0
+    loss: NDT_D2D_ARCTAN_LOSS
+}
+
+resolutions {
+    resolution: 1.0
+    loss: NDT_D2D_ARCTAN_LOSS
+}
+
+max_num_iterations: 10
+
+covariance_resolution_index: 1
+covariance_neighbor_radius: 3.0
+covariance_neighbor_count: 1

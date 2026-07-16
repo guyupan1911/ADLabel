@@ -7,18 +7,24 @@
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <google/protobuf/text_format.h>
+#include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <pcl/io/pcd_io.h>
 
 #include "mapping/common/file.h"
 #include "mapping/common/local_data_reader.h"
-#include "mapping/loop_closure/base_loop_verifier.h"
+#include "mapping/common/pose3d.h"
+#include "mapping/loop_closure/ndt_d2d_loop_verifier.h"
+#include "mapping/loop_closure/proto/ndt_d2d_config.pb.h"
 #include "mapping/loop_closure/matching_pair_searcher.h"
 #include "mapping/protos/frame.pb.h"
 #include "mapping/protos/frame_pair.pb.h"
 
 DEFINE_string(data_roots, "", "comma-separated bag dump root directories");
-DEFINE_string(output_dir, "", "directory to save serialized FramePair proto bin files");
+DEFINE_string(output_dir, "", "directory to save multi-trip fusion outputs");
+DEFINE_string(ndt_d2d_config, "mapping/loop_closure/config/ndt_d2d_config.pb.txt",
+              "path to NdtD2DConfig text proto");
 
 namespace adlabel {
 namespace mapping {
@@ -54,8 +60,20 @@ int Run() {
                    << data_reader_root.string();
     }
   }
+  NdtD2DConfig ndt_d2d_config;
+  std::ifstream config_file(FLAGS_ndt_d2d_config);
+  CHECK(config_file.is_open())
+      << "failed to open --ndt_d2d_config: " << FLAGS_ndt_d2d_config;
+  std::stringstream config_buffer;
+  config_buffer << config_file.rdbuf();
+  CHECK(google::protobuf::TextFormat::ParseFromString(config_buffer.str(),
+                                                       &ndt_d2d_config))
+      << "failed to parse --ndt_d2d_config: " << FLAGS_ndt_d2d_config;
+  CHECK_GT(ndt_d2d_config.resolutions_size(), 0)
+      << "--ndt_d2d_config must contain at least one resolution";
+
   auto data_reader = std::make_shared<LocalDataReader>(data_reader_root.string());
-  BaseLoopVerifier loop_verifier(data_reader);
+  NdtD2dLoopVerifier loop_verifier(data_reader, ndt_d2d_config);
 
   MatchingPairSearcher searcher;
 
@@ -85,43 +103,56 @@ int Run() {
     CHECK(frame_pair.has_to_frame()) << "FramePair missing to_frame";
     const std::string frame_pair_id =
         frame_pair.from_frame().fid() + "__" + frame_pair.to_frame().fid();
-    const std::string file_name = frame_pair_id + ".bin";
-    const std::filesystem::path output_path = output_dir / file_name;
-
-    std::ofstream ofs(output_path, std::ios::binary | std::ios::trunc);
-    CHECK(ofs.is_open()) << "failed to open output file: " << output_path.string();
-    CHECK(frame_pair.SerializeToOstream(&ofs))
-        << "failed to serialize FramePair to: " << output_path.string();
-
     const std::filesystem::path frame_pair_dir = output_dir / frame_pair_id;
     std::filesystem::create_directories(frame_pair_dir, error);
     CHECK(!error) << "failed to create frame_pair_dir: "
                   << frame_pair_dir.string() << ", error: " << error.message();
 
-    loop_verifier.RefineFramePairRelativePose(frame_pair);
-    cv::Mat from_topdown_image;
-    cv::Mat to_topdown_image;
-    loop_verifier.GenerateFramePairTopdownImages(&from_topdown_image,
-                                                 &to_topdown_image);
+    LoopVerifierResult loop_verifier_result;
+    loop_verifier.RefineFramePairRelativePose(frame_pair, &loop_verifier_result);
+
+    cv::Mat merged_topdown_compare_image;
+    cv::hconcat(loop_verifier_result.merge_before_refine_image,
+                loop_verifier_result.merge_after_refine_image,
+                merged_topdown_compare_image);
 
     const std::filesystem::path from_image_path =
         frame_pair_dir / "from_topdown.png";
     const std::filesystem::path to_image_path = frame_pair_dir / "to_topdown.png";
-    CHECK(cv::imwrite(from_image_path.string(), from_topdown_image))
+    const std::filesystem::path merged_before_image_path =
+        frame_pair_dir / "merged_topdown_before.png";
+    const std::filesystem::path merged_after_image_path =
+        frame_pair_dir / "merged_topdown_after.png";
+    const std::filesystem::path merged_compare_image_path =
+        frame_pair_dir / "merged_topdown_compare.png";
+    CHECK(cv::imwrite(from_image_path.string(), loop_verifier_result.source_topdown_image))
         << "failed to write image: " << from_image_path.string();
-    CHECK(cv::imwrite(to_image_path.string(), to_topdown_image))
+    CHECK(cv::imwrite(to_image_path.string(), loop_verifier_result.target_topdown_image))
         << "failed to write image: " << to_image_path.string();
+    CHECK(cv::imwrite(merged_before_image_path.string(),
+                      loop_verifier_result.merge_before_refine_image))
+        << "failed to write image: " << merged_before_image_path.string();
+    CHECK(cv::imwrite(merged_after_image_path.string(), loop_verifier_result.merge_after_refine_image))
+        << "failed to write image: " << merged_after_image_path.string();
+    CHECK(cv::imwrite(merged_compare_image_path.string(),
+                      merged_topdown_compare_image))
+        << "failed to write image: " << merged_compare_image_path.string();
 
     const std::filesystem::path from_local_map_path =
         frame_pair_dir / "from_local_map.pcd";
     const std::filesystem::path to_local_map_path =
         frame_pair_dir / "to_local_map.pcd";
+    const std::filesystem::path merged_local_map_path =
+        frame_pair_dir / "merged_local_map.pcd";
     CHECK(pcl::io::savePCDFileBinary(from_local_map_path.string(),
                                      *loop_verifier.GetFromLocalMap()) == 0)
         << "failed to write point cloud: " << from_local_map_path.string();
     CHECK(pcl::io::savePCDFileBinary(to_local_map_path.string(),
                                      *loop_verifier.GetToLocalMap()) == 0)
         << "failed to write point cloud: " << to_local_map_path.string();
+    CHECK(pcl::io::savePCDFileBinary(merged_local_map_path.string(),
+                                     *loop_verifier.GetMergedLocalMap()) == 0)
+        << "failed to write point cloud: " << merged_local_map_path.string();
   }
 
   return 0;

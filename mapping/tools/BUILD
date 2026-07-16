@@ -77,15 +77,16 @@ cc_binary(
 )
 
 cc_binary(
-    name = "matching_pair_search_cli",
+    name = "multi_trips_fusion_cli",
     srcs = [
-      "matching_pair_search_cli.cc",
+      "multi_trips_fusion_cli.cc",
     ],
     deps = [
       "//mapping/common:file",
       "//mapping/common:local_data_reader",
-      "//mapping/loop_closure:base_loop_verifier",
+      "//mapping/loop_closure:ndt_d2d_loop_verifier",
       "//mapping/loop_closure:matching_pair_searcher",
+      "//mapping/loop_closure/proto:ndt_d2d_config_cc_proto",
       "//mapping/protos:frame_cc_proto",
       "//mapping/protos:frame_pair_cc_proto",
       "@system_libs//:gflags",

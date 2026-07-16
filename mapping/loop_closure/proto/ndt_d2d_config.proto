@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package adlabel.mapping;
+
+enum NdtD2DLossType {
+  NDT_D2D_NULL_LOSS = 0;
+  NDT_D2D_ARCTAN_LOSS = 1;
+  NDT_D2D_CAUCHY_LOSS = 2;
+}
+
+message NdtD2DResolution {
+  optional double resolution = 1;
+  optional NdtD2DLossType loss = 2;
+}
+
+message NdtD2DConfig {
+  repeated NdtD2DResolution resolutions = 1;
+  optional int32 max_num_iterations = 2;
+  optional int32 covariance_resolution_index = 3;
+  optional double covariance_neighbor_radius = 4;
+  optional int32 covariance_neighbor_count = 5;
+}

@@ -42,6 +42,19 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+
+# ---------------------------------------------------------------------------
+# Ceres Solver
+# ---------------------------------------------------------------------------
+cc_library(
+    name = "ceres",
+    hdrs = glob(["include/ceres/**/*.h"]),
+    includes = ["include"],
+    deps = [":eigen", ":glog"],
+    linkopts = ["-lceres"],
+    visibility = ["//visibility:public"],
+)
+
 # ---------------------------------------------------------------------------
 # TBB (Threading Building Blocks)
 # Required by GTSAM (built with GTSAM_WITH_TBB=ON by default).
@@ -122,6 +135,7 @@ cc_library(
         "-lpcl_features",
         "-lboost_system",
         "-lflann_cpp",
+        "-llz4",
     ],
     visibility = ["//visibility:public"],
 )

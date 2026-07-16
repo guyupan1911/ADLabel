@@ -18,10 +18,39 @@ cc_library(
 )
 
 cc_library(
-    name = "base_loop_verifier",
-    srcs = ["base_loop_verifier.cc"],
-    hdrs = ["base_loop_verifier.h"],
+    name = "voxel_grid_covariance",
+    hdrs = ["voxel_grid_covariance.h"],
+    defines = ["USE_UNORDERED_MAP=0"],
     deps = [
+        "@system_libs//:pcl",
+    ],
+)
+
+cc_library(
+    name = "ndt_d2d",
+    srcs = ["ndt_d2d.cc"],
+    hdrs = [
+        "ndt_d2d.h",
+        "d2d_cost_functor.h",
+    ],
+    defines = ["USE_UNORDERED_MAP=0"],
+    deps = [
+        ":voxel_grid_covariance",
+        "//mapping/loop_closure/proto:ndt_d2d_config_cc_proto",
+        "@system_libs//:ceres",
+        "@system_libs//:eigen",
+        "@system_libs//:glog",
+        "@system_libs//:pcl",
+    ],
+)
+
+cc_library(
+    name = "ndt_d2d_loop_verifier",
+    srcs = ["ndt_d2d_loop_verifier.cc"],
+    hdrs = ["ndt_d2d_loop_verifier.h"],
+    deps = [
+        ":ndt_d2d",
+        "//mapping/loop_closure/proto:ndt_d2d_config_cc_proto",
         "//mapping/common:local_data_reader",
         "//mapping/common:pose3d",
         "//mapping/lidar_topdown:lidar_topdown",
