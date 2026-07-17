@@ -137,7 +137,8 @@ void GenerateTopdownImageFromCloud(
 }  // namespace
 
 Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
-    const FramePair& frame_pair, LoopVerifierResult* loop_verifier_result) {
+    const FramePair& frame_pair, LoopVerifierResult* loop_verifier_result,
+    const bool debug) {
   CHECK(loop_verifier_result != nullptr);
 
   from_local_map_ = StitchLocalMap(
@@ -156,11 +157,13 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
   cv::Mat target_topdown_image;
   cv::Mat merge_before_refine_image;
   pcl::PointCloud<PointXYZIRT>::Ptr merged_before_refine_cloud;
-  GenerateTopdownImageFromCloud(from_local_map_, to_local_map_,
-                                init_relative_pose_, &source_topdown_image,
-                                &target_topdown_image,
-                                &merge_before_refine_image,
-                                &merged_before_refine_cloud);
+  if (debug) {
+    GenerateTopdownImageFromCloud(from_local_map_, to_local_map_,
+                                  init_relative_pose_, &source_topdown_image,
+                                  &target_topdown_image,
+                                  &merge_before_refine_image,
+                                  &merged_before_refine_cloud);
+  }
 
   NdtD2D ndt_d2d(ndt_d2d_config_);
   ndt_d2d.SetInputTarget(ToPclCloud(to_local_map_));
@@ -188,17 +191,19 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
 
   cv::Mat merge_after_refine_image;
   pcl::PointCloud<PointXYZIRT>::Ptr merged_after_refine_cloud;
-  const auto generate_after_image_start = std::chrono::steady_clock::now();
-  GenerateTopdownImageFromCloud(from_local_map_, to_local_map_, refined_pose,
-                                &source_topdown_image, &target_topdown_image,
-                                &merge_after_refine_image,
-                                &merged_after_refine_cloud);
-  const auto generate_after_image_end = std::chrono::steady_clock::now();
-  LOG(INFO) << "GenerateFramePairTopdownImages after refine cost: "
-            << std::chrono::duration_cast<std::chrono::milliseconds>(
-                   generate_after_image_end - generate_after_image_start)
-                   .count()
-            << " ms";
+  if (debug) {
+    const auto generate_after_image_start = std::chrono::steady_clock::now();
+    GenerateTopdownImageFromCloud(from_local_map_, to_local_map_, refined_pose,
+                                  &source_topdown_image, &target_topdown_image,
+                                  &merge_after_refine_image,
+                                  &merged_after_refine_cloud);
+    const auto generate_after_image_end = std::chrono::steady_clock::now();
+    LOG(INFO) << "GenerateFramePairTopdownImages after refine cost: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(
+                     generate_after_image_end - generate_after_image_start)
+                     .count()
+              << " ms";
+  }
 
   loop_verifier_result->refined_pose = refined_pose;
   loop_verifier_result->inlier_ratio = inlier_ratio;
@@ -218,10 +223,19 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr NdtD2dLoopVerifier::ToPclCloud(
     const pcl::PointCloud<PointXYZIRT>::Ptr& cloud) const {
   CHECK(cloud != nullptr);
 
+  constexpr double kMaxDistanceFromOriginM = 100.0;
+  constexpr double kMaxDistanceFromOriginSquaredM2 =
+      kMaxDistanceFromOriginM * kMaxDistanceFromOriginM;
+
   pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(
       new pcl::PointCloud<pcl::PointXYZ>);
   pcl_cloud->points.reserve(cloud->points.size());
   for (const auto& point : cloud->points) {
+    const double distance_squared = point.x * point.x + point.y * point.y +
+                                    point.z * point.z;
+    if (distance_squared > kMaxDistanceFromOriginSquaredM2) {
+      continue;
+    }
     pcl_cloud->points.emplace_back(point.x, point.y, point.z);
   }
   pcl_cloud->width = static_cast<std::uint32_t>(pcl_cloud->points.size());

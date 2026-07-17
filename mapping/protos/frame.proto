@@ -5,6 +5,12 @@ package adlabel.mapping;
 import "mapping/protos/pose.proto";
 import "mapping/protos/camera_calibration.proto";
 
+message MatchedFrame {
+  optional string frame_id = 1;
+  optional Pose3DMessage relative_pose = 2;
+  optional double inlier_ratio = 3;
+}
+
 message Frame {
   optional string trip_id = 1;   
   optional string fid = 2;
@@ -40,4 +46,6 @@ message Frame {
   // camera_related
   optional CameraCalibration camera_calibration = 14;
   optional string camera_segmentation_uri = 15;
+
+  repeated MatchedFrame matched_frames = 19;
 }

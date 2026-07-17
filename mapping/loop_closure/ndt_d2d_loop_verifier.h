@@ -43,7 +43,8 @@ class NdtD2dLoopVerifier {
         ndt_d2d_config_(std::move(ndt_d2d_config)) {}
 
   Eigen::Affine3d RefineFramePairRelativePose(
-      const FramePair& frame_pair, LoopVerifierResult* loop_verifier_result);
+      const FramePair& frame_pair, LoopVerifierResult* loop_verifier_result,
+      bool debug = false);
 
   void GenerateFramePairTopdownImages(
       const Eigen::Affine3d& init_pose_relative, cv::Mat* from_image,

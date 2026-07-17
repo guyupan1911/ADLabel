@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <Eigen/Geometry>
+#include <GeographicLib/Geocentric.hpp>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <opencv2/imgcodecs.hpp>
@@ -20,7 +21,8 @@
 #include "mapping/mapping_utils/stitch_utils.h"
 #include "mapping/protos/frame.pb.h"
 
-DEFINE_string(data_root, "", "bag dump root directory");
+DEFINE_string(data_root, "", "root directory for LocalDataReader");
+DEFINE_string(lidar_metadata, "", "path to lidar frame metadata file");
 DEFINE_string(output_dir, "", "directory to save topdown intensity image");
 DEFINE_double(resolution, 0.05, "topdown image resolution, meters per pixel");
 DEFINE_double(margin_meters, 50.0, "extra margin around trajectory bounds");
@@ -33,12 +35,32 @@ namespace adlabel {
 namespace mapping {
 namespace {
 
-constexpr char kLidarMetadataPath[] = "metadata/lidar/lidar_plusai_unified.meta";
-
 struct LocalFramePose {
     Frame frame;
     Eigen::Vector2d origin_xy{0.0, 0.0};
 };
+
+Eigen::Matrix3d EcefToEnuRotation(double lat_deg, double lon_deg) {
+    constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+    const double lat = lat_deg * kDegToRad;
+    const double lon = lon_deg * kDegToRad;
+    const double sin_lat = std::sin(lat);
+    const double cos_lat = std::cos(lat);
+    const double sin_lon = std::sin(lon);
+    const double cos_lon = std::cos(lon);
+
+    Eigen::Matrix3d rotation;
+    rotation << -sin_lon, cos_lon, 0.0,
+                -sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat,
+                 cos_lat * cos_lon, cos_lat * sin_lon, sin_lat;
+    return rotation;
+}
+
+Eigen::Vector3d EcefToEnu(const Eigen::Vector3d& point_ecef,
+                          const Eigen::Vector3d& origin_ecef,
+                          const Eigen::Matrix3d& ecef_to_enu_rotation) {
+    return ecef_to_enu_rotation * (point_ecef - origin_ecef);
+}
 
 LidarLosslessMapNode::IntensityAggregationMode ParseAggregationMode(
         const std::string& mode) {
@@ -55,6 +77,7 @@ LidarLosslessMapNode::IntensityAggregationMode ParseAggregationMode(
 
 int Run() {
     CHECK(!FLAGS_data_root.empty()) << "--data_root is required";
+    CHECK(!FLAGS_lidar_metadata.empty()) << "--lidar_metadata is required";
     CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
     CHECK_GT(FLAGS_resolution, 0.0) << "--resolution must be positive";
     CHECK_GE(FLAGS_margin_meters, 0.0) << "--margin_meters must be non-negative";
@@ -63,22 +86,26 @@ int Run() {
             ParseAggregationMode(FLAGS_aggregation_mode);
 
     const std::filesystem::path data_root(FLAGS_data_root);
+    const std::filesystem::path lidar_metadata_path(FLAGS_lidar_metadata);
     const std::filesystem::path output_dir(FLAGS_output_dir);
     std::error_code error;
     std::filesystem::create_directories(output_dir, error);
     CHECK(!error) << "failed to create output_dir: " << output_dir.string()
                   << ", error: " << error.message();
 
-    const std::filesystem::path lidar_metadata_path = data_root / kLidarMetadataPath;
-    const std::filesystem::path data_reader_root = data_root.parent_path();
-    auto data_reader = std::make_shared<LocalDataReader>(data_reader_root.string());
-    LOG(INFO) << "data_root=" << data_root.string()
-              << ", local_data_reader_root=" << data_reader_root.string();
+    auto data_reader = std::make_shared<LocalDataReader>(data_root.string());
+    LOG(INFO) << "local_data_reader_root=" << data_root.string()
+              << ", lidar_metadata=" << lidar_metadata_path.string();
 
-    const std::vector<Frame> frames = ReadMetaFile<Frame>(lidar_metadata_path.string());
+    std::vector<Frame> frames = ReadMetaFile<Frame>(lidar_metadata_path.string());
     CHECK(!frames.empty()) << "no frames loaded from " << lidar_metadata_path.string();
+    std::sort(frames.begin(), frames.end(), [](const Frame& lhs, const Frame& rhs) {
+        return lhs.timestamp_ns() < rhs.timestamp_ns();
+    });
 
-    Eigen::Affine3d origin_pose_ecef = Eigen::Affine3d::Identity();
+    Eigen::Vector3d enu_origin_ecef = Eigen::Vector3d::Zero();
+    Eigen::Matrix3d ecef_to_enu_rotation = Eigen::Matrix3d::Identity();
+    bool has_enu_origin = false;
     std::vector<LocalFramePose> local_frames;
     for (const auto& frame : frames) {
         if (!frame.has_cloud_uri() || frame.cloud_uri().empty()) {
@@ -95,14 +122,26 @@ int Run() {
         }
 
         const Eigen::Affine3d pose_ecef = Pose3D(frame.refined_pose_3d()).GetAffine3D();
-        if (local_frames.empty()) {
-            origin_pose_ecef = pose_ecef;
+        const Eigen::Vector3d pose_translation_ecef = pose_ecef.translation();
+        if (!has_enu_origin) {
+            double lat = 0.0;
+            double lon = 0.0;
+            double height = 0.0;
+            GeographicLib::Geocentric::WGS84().Reverse(
+                    pose_translation_ecef.x(), pose_translation_ecef.y(),
+                    pose_translation_ecef.z(), lat, lon, height);
+            enu_origin_ecef = pose_translation_ecef;
+            ecef_to_enu_rotation = EcefToEnuRotation(lat, lon);
+            has_enu_origin = true;
         }
+
+        const Eigen::Vector3d pose_enu =
+                EcefToEnu(pose_translation_ecef, enu_origin_ecef,
+                          ecef_to_enu_rotation);
 
         LocalFramePose local_frame;
         local_frame.frame = frame;
-        local_frame.origin_xy =
-                (origin_pose_ecef.inverse() * pose_ecef).translation().head<2>();
+        local_frame.origin_xy = pose_enu.head<2>();
         local_frames.push_back(local_frame);
     }
     CHECK(!local_frames.empty()) << "no processable lidar frames in "
@@ -133,7 +172,6 @@ int Run() {
               << local_frames.size() << ", segments=" << frame_segments.size()
               << ", origin timestamp=" << local_frames.front().frame.timestamp_ns();
 
-    const Eigen::Affine3d T_origin_ecef = origin_pose_ecef.inverse();
     for (size_t segment_index = 0; segment_index < frame_segments.size(); ++segment_index) {
         const auto& segment = frame_segments[segment_index];
         double min_x = std::numeric_limits<double>::max();
@@ -181,15 +219,18 @@ int Run() {
                 continue;
             }
 
-            const Eigen::Affine3d T_origin_lidar =
-                    T_origin_ecef * lidar_frame_data.pose_ecef *
+            const Eigen::Affine3d T_ecef_lidar =
+                    lidar_frame_data.pose_ecef *
                     lidar_frame_data.transform_from_sensor_to_imu;
             for (const auto& point : lidar_frame_data.raw_cloud->points) {
-                const Eigen::Vector3d p_origin =
-                        T_origin_lidar * Eigen::Vector3d(point.x, point.y, point.z);
+                const Eigen::Vector3d p_ecef =
+                        T_ecef_lidar * Eigen::Vector3d(point.x, point.y, point.z);
+                const Eigen::Vector3d p_enu =
+                        EcefToEnu(p_ecef, enu_origin_ecef,
+                                  ecef_to_enu_rotation);
                 const float clamped_intensity =
                         std::max(0.0f, std::min(255.0f, point.intensity));
-                node.SetValue(p_origin,
+                node.SetValue(p_enu,
                               frame.sensor_name(),
                               static_cast<unsigned char>(clamped_intensity));
             }

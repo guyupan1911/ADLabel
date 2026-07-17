@@ -113,32 +113,46 @@ def ecef_to_lla(x, y, z):
     return math.degrees(lat), math.degrees(lon), alt
 
 
+def frame_timestamp_sort_key(frame):
+    timestamp_ns = frame.timestamp_ns if frame.HasField("timestamp_ns") else 0
+    return timestamp_ns, frame.fid
+
+
 def load_refined_pose_trajectories(metadata_paths):
     trajectories = []
     origin = None
     for metadata_path in metadata_paths:
         metadata_path = Path(metadata_path)
         frames = read_frame_metadata(metadata_path)
-        local_points = []
-        map_points = []
-        trip_id = None
+        frames_by_trip = {}
+        trip_order = []
         for frame in frames:
-            if trip_id is None and frame.trip_id:
-                trip_id = frame.trip_id
             if not frame.HasField("refined_pose_3d"):
                 continue
-            pose = frame.refined_pose_3d
-            if origin is None:
-                origin = (pose.x, pose.y)
-            local_points.append((pose.x - origin[0], pose.y - origin[1]))
-            lat, lon, _ = ecef_to_lla(pose.x, pose.y, pose.z)
-            map_points.append((lat, lon))
+            trip_id = frame.trip_id or metadata_path.stem
+            if trip_id not in frames_by_trip:
+                frames_by_trip[trip_id] = []
+                trip_order.append(trip_id)
+            frames_by_trip[trip_id].append(frame)
 
-        if local_points:
+        if not frames_by_trip:
+            print(f"warning: no refined_pose_3d in {metadata_path}")
+            continue
+
+        for trip_id in trip_order:
+            local_points = []
+            map_points = []
+            trip_frames = sorted(frames_by_trip[trip_id], key=frame_timestamp_sort_key)
+            for frame in trip_frames:
+                pose = frame.refined_pose_3d
+                if origin is None:
+                    origin = (pose.x, pose.y)
+                local_points.append((pose.x - origin[0], pose.y - origin[1]))
+                lat, lon, _ = ecef_to_lla(pose.x, pose.y, pose.z)
+                map_points.append((lat, lon))
+
             label = trip_id or metadata_path.stem
             trajectories.append((label, local_points, map_points, metadata_path))
-        else:
-            print(f"warning: no refined_pose_3d in {metadata_path}")
 
     if not trajectories:
         raise RuntimeError("no valid refined_pose_3d trajectory found")

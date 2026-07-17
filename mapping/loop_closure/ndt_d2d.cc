@@ -179,8 +179,8 @@ int NdtD2D::AlignOnce(const size_t resolution_index) {
 
   ceres::Solve(options, &problem, &summary);
 
-  LOG(INFO) << "resolution: " << config_.resolutions(resolution_index).resolution() << "\n"
-            << summary.BriefReport();
+  // LOG(INFO) << "resolution: " << config_.resolutions(resolution_index).resolution() << "\n"
+  //           << summary.BriefReport();
 
   inlier_ratio_ = inlier_ratio;
   return summary.iterations.size();

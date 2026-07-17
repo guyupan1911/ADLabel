@@ -65,3 +65,16 @@ cc_library(
         "@system_libs//:opencv",
     ],
 )
+
+cc_library(
+    name = "pose_graph_optimizer",
+    srcs = ["pose_graph_optimizer.cc"],
+    hdrs = ["pose_graph_optimizer.h"],
+    deps = [
+        "//mapping/protos:frame_cc_proto",
+        "//mapping/protos:pose_cc_proto",
+        "@local_libs//:gtsam",
+        "@system_libs//:eigen",
+        "@system_libs//:glog",
+    ],
+)
