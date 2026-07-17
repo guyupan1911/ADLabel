@@ -6,7 +6,6 @@
 
 #include <Eigen/Geometry>
 #include <glog/logging.h>
-#include <pcl/filters/crop_box.h>
 
 #include "mapping/common/pose3d.h"
 
@@ -14,12 +13,12 @@ namespace adlabel {
 namespace mapping {
 namespace {
 
-constexpr double kEgoVehicleMinXM = 1.0;
-constexpr double kEgoVehicleMaxXM = 6.5;
-constexpr double kEgoVehicleMinYM = -3.0;
-constexpr double kEgoVehicleMaxYM = 3.0;
-constexpr double kEgoVehicleMinZM = 0.5;
-constexpr double kEgoVehicleMaxZM = 4.0;
+constexpr double kMinDistanceFromOriginM = 9.0;
+constexpr double kMaxDistanceFromOriginM = 120.0;
+constexpr double kMinDistanceFromOriginSquaredM2 =
+    kMinDistanceFromOriginM * kMinDistanceFromOriginM;
+constexpr double kMaxDistanceFromOriginSquaredM2 =
+    kMaxDistanceFromOriginM * kMaxDistanceFromOriginM;
 
 bool ReadInt32Labels(const std::shared_ptr<LocalDataReader>& local_data_reader,
                       const std::string& uri,
@@ -113,16 +112,24 @@ bool GenerateLidarFrameData(
     }
   }
 
-  pcl::CropBox<PointXYZIRT> crop_box;
-  crop_box.setInputCloud(lidar_frame_data->raw_cloud);
-  crop_box.setMin(Eigen::Vector4f(kEgoVehicleMinXM, kEgoVehicleMinYM,
-                                  kEgoVehicleMinZM, 1.0f));
-  crop_box.setMax(Eigen::Vector4f(kEgoVehicleMaxXM, kEgoVehicleMaxYM,
-                                  kEgoVehicleMaxZM, 1.0f));
-  crop_box.setNegative(true);
-  FrameData::Cloud::Ptr filtered_cloud(new FrameData::Cloud);
-  crop_box.filter(*filtered_cloud);
-  lidar_frame_data->raw_cloud = filtered_cloud;
+  FrameData::Cloud::Ptr range_filtered_cloud(new FrameData::Cloud);
+  *range_filtered_cloud = *lidar_frame_data->raw_cloud;
+  range_filtered_cloud->points.clear();
+  range_filtered_cloud->points.reserve(lidar_frame_data->raw_cloud->points.size());
+  for (const auto& point : lidar_frame_data->raw_cloud->points) {
+    const double distance_squared = point.x * point.x + point.y * point.y +
+                                    point.z * point.z;
+    if (distance_squared < kMinDistanceFromOriginSquaredM2 ||
+        distance_squared > kMaxDistanceFromOriginSquaredM2) {
+      continue;
+    }
+    range_filtered_cloud->points.push_back(point);
+  }
+  range_filtered_cloud->width =
+      static_cast<std::uint32_t>(range_filtered_cloud->points.size());
+  range_filtered_cloud->height = 1;
+  range_filtered_cloud->is_dense = lidar_frame_data->raw_cloud->is_dense;
+  lidar_frame_data->raw_cloud = range_filtered_cloud;
 
   return true;
 }

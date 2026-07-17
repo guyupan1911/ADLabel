@@ -59,8 +59,8 @@ class PoseGraphOptimizer {
   static constexpr double kPriorTranslationSigmaM = 10000;
   static constexpr double kBetweenTranslationSigmaM = 0.1;
   static constexpr double kBetweenRotationSigmaRad = 0.01;
-  static constexpr double kLoopClosureTranslationSigmaM = 0.5;
-  static constexpr double kLoopClosureRotationSigmaRad = 0.1;
+  static constexpr double kLoopClosureTranslationSigmaM = 0.1;
+  static constexpr double kLoopClosureRotationSigmaRad = 0.01;
 
   void BuildProblem();
   PoseGraphResidualSummary ComputeResidualSummary(
