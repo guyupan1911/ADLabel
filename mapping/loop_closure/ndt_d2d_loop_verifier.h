@@ -31,6 +31,8 @@ struct LoopVerifierResult {
   cv::Mat target_topdown_image;
   cv::Mat merge_before_refine_image;
   cv::Mat merge_after_refine_image;
+  pcl::PointCloud<PointXYZIRT>::Ptr merged_before_refine_cloud;
+  pcl::PointCloud<PointXYZIRT>::Ptr merged_after_refine_cloud;
 };
 
 class NdtD2dLoopVerifier {
@@ -55,29 +57,23 @@ class NdtD2dLoopVerifier {
     return to_local_map_;
   }
 
-  pcl::PointCloud<PointXYZIRT>::Ptr GetMergedLocalMap() const {
-    return merged_local_map_;
-  }
-
   const Eigen::Affine3d& GetInitRelativePose() const {
     return init_relative_pose_;
   }
 
  private:
-
   pcl::PointCloud<pcl::PointXYZ>::Ptr ToPclCloud(
       const pcl::PointCloud<PointXYZIRT>::Ptr& cloud) const;
 
   pcl::PointCloud<PointXYZIRT>::Ptr StitchLocalMap(
-    const Frame& reference_frame,
-    const google::protobuf::RepeatedPtrField<Frame>& frames,
-    const google::protobuf::RepeatedPtrField<Pose3DMessage>& relative_poses);
+      const Frame& reference_frame,
+      const google::protobuf::RepeatedPtrField<Frame>& frames,
+      const google::protobuf::RepeatedPtrField<Pose3DMessage>& relative_poses);
 
   std::shared_ptr<LocalDataReader> local_data_reader_;
   NdtD2DConfig ndt_d2d_config_;
   pcl::PointCloud<PointXYZIRT>::Ptr from_local_map_;
   pcl::PointCloud<PointXYZIRT>::Ptr to_local_map_;
-  pcl::PointCloud<PointXYZIRT>::Ptr merged_local_map_;
   Eigen::Affine3d init_relative_pose_ = Eigen::Affine3d::Identity();
 };
 

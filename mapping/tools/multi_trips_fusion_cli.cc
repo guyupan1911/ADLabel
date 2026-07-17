@@ -138,21 +138,32 @@ int Run() {
                       merged_topdown_compare_image))
         << "failed to write image: " << merged_compare_image_path.string();
 
+    const auto save_point_cloud = [](const std::filesystem::path& path,
+                                     const auto& cloud) {
+      CHECK(cloud != nullptr) << "cannot write null point cloud: "
+                              << path.string();
+      CHECK(pcl::io::savePCDFileBinary(path.string(), *cloud) == 0)
+          << "failed to write point cloud: " << path.string();
+    };
+
     const std::filesystem::path from_local_map_path =
         frame_pair_dir / "from_local_map.pcd";
     const std::filesystem::path to_local_map_path =
         frame_pair_dir / "to_local_map.pcd";
+    const std::filesystem::path merged_before_local_map_path =
+        frame_pair_dir / "merged_local_map_before_refine.pcd";
+    const std::filesystem::path merged_after_local_map_path =
+        frame_pair_dir / "merged_local_map_after_refine.pcd";
     const std::filesystem::path merged_local_map_path =
         frame_pair_dir / "merged_local_map.pcd";
-    CHECK(pcl::io::savePCDFileBinary(from_local_map_path.string(),
-                                     *loop_verifier.GetFromLocalMap()) == 0)
-        << "failed to write point cloud: " << from_local_map_path.string();
-    CHECK(pcl::io::savePCDFileBinary(to_local_map_path.string(),
-                                     *loop_verifier.GetToLocalMap()) == 0)
-        << "failed to write point cloud: " << to_local_map_path.string();
-    CHECK(pcl::io::savePCDFileBinary(merged_local_map_path.string(),
-                                     *loop_verifier.GetMergedLocalMap()) == 0)
-        << "failed to write point cloud: " << merged_local_map_path.string();
+    save_point_cloud(from_local_map_path, loop_verifier.GetFromLocalMap());
+    save_point_cloud(to_local_map_path, loop_verifier.GetToLocalMap());
+    save_point_cloud(merged_before_local_map_path,
+                     loop_verifier_result.merged_before_refine_cloud);
+    save_point_cloud(merged_after_local_map_path,
+                     loop_verifier_result.merged_after_refine_cloud);
+    save_point_cloud(merged_local_map_path,
+                     loop_verifier_result.merged_after_refine_cloud);
   }
 
   return 0;
