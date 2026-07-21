@@ -51,6 +51,7 @@ cc_binary(
       "//mapping/mapping_utils:stitch_utils",
       "//mapping/protos:frame_cc_proto",
       "@system_libs//:eigen",
+      "@system_libs//:geographiclib",
       "@system_libs//:gflags",
       "@system_libs//:glog",
       "@system_libs//:opencv",

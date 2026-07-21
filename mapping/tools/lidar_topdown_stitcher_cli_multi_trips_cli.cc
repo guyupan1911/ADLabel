@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <Eigen/Geometry>
+#include <GeographicLib/Geocentric.hpp>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <opencv2/imgcodecs.hpp>
@@ -36,6 +37,28 @@ struct LocalFramePose {
     std::shared_ptr<LocalDataReader> data_reader;
 };
 
+Eigen::Matrix3d EcefToEnuRotation(double lat_deg, double lon_deg) {
+    constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+    const double lat = lat_deg * kDegToRad;
+    const double lon = lon_deg * kDegToRad;
+    const double sin_lat = std::sin(lat);
+    const double cos_lat = std::cos(lat);
+    const double sin_lon = std::sin(lon);
+    const double cos_lon = std::cos(lon);
+
+    Eigen::Matrix3d rotation;
+    rotation << -sin_lon, cos_lon, 0.0,
+                -sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat,
+                 cos_lat * cos_lon, cos_lat * sin_lon, sin_lat;
+    return rotation;
+}
+
+Eigen::Vector3d EcefToEnu(const Eigen::Vector3d& point_ecef,
+                          const Eigen::Vector3d& origin_ecef,
+                          const Eigen::Matrix3d& ecef_to_enu_rotation) {
+    return ecef_to_enu_rotation * (point_ecef - origin_ecef);
+}
+
 int Run() {
     CHECK(!FLAGS_data_roots.empty()) << "--data_roots is required";
     CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
@@ -58,8 +81,9 @@ int Run() {
     CHECK(!error) << "failed to create output_dir: " << output_dir.string()
                   << ", error: " << error.message();
 
-    Eigen::Affine3d origin_pose_ecef = Eigen::Affine3d::Identity();
-    bool has_origin = false;
+    Eigen::Vector3d enu_origin_ecef = Eigen::Vector3d::Zero();
+    Eigen::Matrix3d ecef_to_enu_rotation = Eigen::Matrix3d::Identity();
+    bool has_enu_origin = false;
     std::vector<LocalFramePose> local_frames;
 
     for (const auto& data_root : data_roots) {
@@ -88,15 +112,24 @@ int Run() {
             }
 
             const Eigen::Affine3d pose_ecef = Pose3D(frame.refined_pose_3d()).GetAffine3D();
-            if (!has_origin) {
-                origin_pose_ecef = pose_ecef;
-                has_origin = true;
+            const Eigen::Vector3d pose_translation_ecef = pose_ecef.translation();
+            if (!has_enu_origin) {
+                double lat = 0.0;
+                double lon = 0.0;
+                double height = 0.0;
+                GeographicLib::Geocentric::WGS84().Reverse(
+                        pose_translation_ecef.x(), pose_translation_ecef.y(),
+                        pose_translation_ecef.z(), lat, lon, height);
+                enu_origin_ecef = pose_translation_ecef;
+                ecef_to_enu_rotation = EcefToEnuRotation(lat, lon);
+                has_enu_origin = true;
             }
 
             LocalFramePose local_frame;
             local_frame.frame = frame;
             local_frame.origin_xy =
-                    (origin_pose_ecef.inverse() * pose_ecef).translation().head<2>();
+                    EcefToEnu(pose_translation_ecef, enu_origin_ecef,
+                              ecef_to_enu_rotation).head<2>();
             local_frame.data_reader = data_reader;
             local_frames.push_back(local_frame);
             ++processable_count;
@@ -147,7 +180,6 @@ int Run() {
               LidarLosslessMapNode::IntensityMappingMode::kLogarithmic,
               LidarLosslessMapNode::IntensityAggregationMode::kMean);
 
-    const Eigen::Affine3d T_origin_ecef = origin_pose_ecef.inverse();
     size_t processed_frames = 0;
     for (const auto& local_frame : local_frames) {
         FrameData lidar_frame_data;
@@ -158,15 +190,18 @@ int Run() {
             continue;
         }
 
-        const Eigen::Affine3d T_origin_lidar =
-                T_origin_ecef * lidar_frame_data.pose_ecef *
+        const Eigen::Affine3d T_ecef_lidar =
+                lidar_frame_data.pose_ecef *
                 lidar_frame_data.transform_from_sensor_to_imu;
         for (const auto& point : lidar_frame_data.raw_cloud->points) {
-            const Eigen::Vector3d p_origin =
-                    T_origin_lidar * Eigen::Vector3d(point.x, point.y, point.z);
+            const Eigen::Vector3d p_ecef =
+                    T_ecef_lidar * Eigen::Vector3d(point.x, point.y, point.z);
+            const Eigen::Vector3d p_enu =
+                    EcefToEnu(p_ecef, enu_origin_ecef,
+                              ecef_to_enu_rotation);
             const float clamped_intensity =
                     std::max(0.0f, std::min(255.0f, point.intensity));
-            node.SetValue(p_origin,
+            node.SetValue(p_enu,
                           local_frame.frame.sensor_name(),
                           static_cast<unsigned char>(clamped_intensity));
         }
