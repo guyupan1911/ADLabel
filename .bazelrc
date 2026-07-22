@@ -1,7 +1,13 @@
 # .bazelrc
-# 将 Bazel 输出目录放在项目内以便容器重启后保留缓存
+# Keep Bazel output inside the workspace so the cache survives container restarts.
 startup --output_user_root=/workspace/ADLabel/.cache/bazel
 
-# 禁用 repo contents cache 避免在主仓库内部缓存导致的问题
+# Disable the repo contents cache to avoid caching inside the main workspace.
 build --repository_cache=/workspace/ADLabel/.cache/bazel/repository_cache
 common --repo_contents_cache=
+
+# Compile all C++ targets as ISO C++17.
+build --cxxopt=-std=c++17
+
+# Use optimized builds by default. Override with `-c dbg` when debugging.
+build --compilation_mode=opt

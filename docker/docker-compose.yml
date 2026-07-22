@@ -2,6 +2,7 @@ name: adlabel
 
 services:
   dev:
+    init: true
     build:
       context: ..
       dockerfile: docker/Dockerfile
