@@ -9,5 +9,19 @@ cc_library(
     deps = [
         "//mapping/common:pcl_types",
         "//third_party/small_gicp:small_gicp",
+        "@system_libs//:eigen",
+    ],
+)
+
+cc_library(
+    name = "registration_visualization",
+    srcs = ["registration_visualization.cc"],
+    hdrs = ["registration_visualization.h"],
+    deps = [
+        ":small_gicp_utils",
+        "//mapping/common:pcl_types",
+        "@system_libs//:eigen",
+        "@system_libs//:opencv",
+        "@system_libs//:pcl",
     ],
 )
