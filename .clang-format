@@ -2,3 +2,31 @@
 Language: Cpp
 BasedOnStyle: Google
 Standard: c++17
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Known third-party libraries. This rule must appear before the generic
+  # angle-bracket rules because the first matching rule wins.
+  - Regex: '^[<"](Eigen|GeographicLib|boost|ceres|flann|gflags|glog|google|gtsam|nlohmann|opencv|opencv2|pcl|small_gicp|tbb|yaml-cpp)/'
+    Priority: 3
+    CaseSensitive: false
+
+  # C and POSIX headers.
+  - Regex: '^<.*\.h>'
+    Priority: 1
+    CaseSensitive: false
+
+  # C++ standard library headers.
+  - Regex: '^<[^/]+>$'
+    Priority: 2
+    CaseSensitive: false
+
+  # Other external libraries.
+  - Regex: '^<.*>'
+    Priority: 3
+    CaseSensitive: false
+
+  # ADLabel project headers.
+  - Regex: '^".*"'
+    Priority: 4
+    CaseSensitive: false

@@ -163,8 +163,7 @@ void PoseGraphOptimizer::BuildProblem() {
           !matched_frame.has_relative_pose()) {
         continue;
       }
-      const auto to_key_iter =
-          frame_id_to_key_.find(matched_frame.frame_id());
+      const auto to_key_iter = frame_id_to_key_.find(matched_frame.frame_id());
       if (to_key_iter == frame_id_to_key_.end()) {
         continue;
       }
@@ -195,9 +194,9 @@ PoseGraphResidualSummary PoseGraphOptimizer::ComputeResidualSummary(
 
     const gtsam::Point3 predicted_translation =
         values.at<gtsam::Pose3>(key_iter->second).translation();
-    const Eigen::Vector3d measured_translation(
-        frame.refined_pose_3d().x(), frame.refined_pose_3d().y(),
-        frame.refined_pose_3d().z());
+    const Eigen::Vector3d measured_translation(frame.refined_pose_3d().x(),
+                                               frame.refined_pose_3d().y(),
+                                               frame.refined_pose_3d().z());
     prior_translation_residual_sum +=
         (Eigen::Vector3d(predicted_translation.x(), predicted_translation.y(),
                          predicted_translation.z()) -
@@ -266,8 +265,7 @@ PoseGraphResidualSummary PoseGraphOptimizer::ComputeResidualSummary(
           !matched_frame.has_relative_pose()) {
         continue;
       }
-      const auto to_key_iter =
-          frame_id_to_key_.find(matched_frame.frame_id());
+      const auto to_key_iter = frame_id_to_key_.find(matched_frame.frame_id());
       if (to_key_iter == frame_id_to_key_.end()) {
         continue;
       }
@@ -292,8 +290,7 @@ PoseGraphResidualSummary PoseGraphOptimizer::ComputeResidualSummary(
   const int factor_count =
       summary.between_factor_count + summary.loop_closure_factor_count;
   if (factor_count > 0) {
-    summary.mean_translation_residual =
-        translation_residual_sum / factor_count;
+    summary.mean_translation_residual = translation_residual_sum / factor_count;
     summary.mean_rotation_residual = rotation_residual_sum / factor_count;
   }
   if (summary.loop_closure_factor_count > 0) {

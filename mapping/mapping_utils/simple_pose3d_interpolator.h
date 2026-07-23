@@ -36,8 +36,7 @@ class SimplePose3DInterpolator {
     if (upper == timestamped_poses_.end()) {
       if (!enable_extrapolation) {
         LOG(INFO) << "pose interpolate fail, timestamp: " << timestamp_ns
-                  << " exceeds most recent ts: "
-                  << std::prev(upper)->first;
+                  << " exceeds most recent ts: " << std::prev(upper)->first;
         return false;
       }
       auto end = std::prev(upper);
@@ -70,13 +69,12 @@ class SimplePose3DInterpolator {
   }
 
  private:
-
-  static double TimeDiffRatio(const int64_t t0, const int64_t t, const int64_t t1) {
+  static double TimeDiffRatio(const int64_t t0, const int64_t t,
+                              const int64_t t1) {
     return static_cast<double>(t - t0) / static_cast<double>(t1 - t0);
   }
 
-  static Pose3D Interpolate(const int64_t t,
-                            const int64_t t0, const Pose3D& p0,
+  static Pose3D Interpolate(const int64_t t, const int64_t t0, const Pose3D& p0,
                             const int64_t t1, const Pose3D& p1) {
     const double w = TimeDiffRatio(t0, t, t1);
     const Eigen::Vector3d translation =
@@ -86,8 +84,7 @@ class SimplePose3DInterpolator {
     return Pose3D(translation, q);
   }
 
-  static Pose3D Extrapolate(const int64_t t,
-                            const int64_t t0, const Pose3D& p0,
+  static Pose3D Extrapolate(const int64_t t, const int64_t t0, const Pose3D& p0,
                             const int64_t t1, const Pose3D& p1) {
     const double w = TimeDiffRatio(t0, t, t1);
     const Eigen::Vector3d translation =
@@ -97,9 +94,8 @@ class SimplePose3DInterpolator {
     const Eigen::Quaterniond q0 = p0.GetQuaternion().normalized();
     const Eigen::Quaterniond q1 = p1.GetQuaternion().normalized();
     const Eigen::AngleAxisd delta(q0.inverse() * q1);
-    const Eigen::Quaterniond q =
-        q0 *
-        Eigen::Quaterniond(Eigen::AngleAxisd(delta.angle() * w, delta.axis()));
+    const Eigen::Quaterniond q = q0 * Eigen::Quaterniond(Eigen::AngleAxisd(
+                                          delta.angle() * w, delta.axis()));
 
     return Pose3D(translation, q);
   }

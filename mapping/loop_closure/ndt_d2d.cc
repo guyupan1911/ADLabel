@@ -25,7 +25,8 @@ ceres::LossFunction* CreateLossFunction(const NdtD2DLossType loss_type) {
 
 }  // namespace
 
-void NdtD2D::SetInputSource(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& source) {
+void NdtD2D::SetInputSource(
+    const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& source) {
   source_cloud_ = source;
 
   for (int i = 0; i < config_.resolutions_size(); ++i) {
@@ -39,7 +40,8 @@ void NdtD2D::SetInputSource(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& sour
   }
 }
 
-void NdtD2D::SetInputTarget(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& target) {
+void NdtD2D::SetInputTarget(
+    const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& target) {
   target_cloud_ = target;
 
   for (int i = 0; i < config_.resolutions_size(); ++i) {
@@ -100,8 +102,7 @@ void NdtD2D::CompuateCovariance(Eigen::Matrix3d* orientation_covariance,
   ceres::Problem problem;
   BuildProblem(config_.covariance_resolution_index(),
                config_.covariance_neighbor_radius(),
-               config_.covariance_neighbor_count(),
-               &problem, nullptr);
+               config_.covariance_neighbor_count(), &problem, nullptr);
 
   const int residual_block_count = problem.NumResidualBlocks();
   if (residual_block_count == 0) {
@@ -114,7 +115,7 @@ void NdtD2D::CompuateCovariance(Eigen::Matrix3d* orientation_covariance,
   cov_options.num_threads = config_.num_threads();
   cov_options.algorithm_type = ceres::DENSE_SVD;
   ceres::Covariance covariance(cov_options);
-  
+
   std::vector<std::pair<const double*, const double*>> covariance_blocks;
   covariance_blocks.emplace_back(aligned_rotation_.coeffs().data(),
                                  aligned_rotation_.coeffs().data());
@@ -138,8 +139,6 @@ void NdtD2D::CompuateCovariance(Eigen::Matrix3d* orientation_covariance,
                                               aligned_translation_.data(),
                                               translation_cov.data());
 
-
-
   constexpr double kCovarianceCoeff = 1e-2;
   *orientation_covariance =
       rotation_cov * residual_block_count * kCovarianceCoeff;
@@ -147,8 +146,7 @@ void NdtD2D::CompuateCovariance(Eigen::Matrix3d* orientation_covariance,
       translation_cov * residual_block_count * kCovarianceCoeff;
 }
 
-bool NdtD2D::IsVoxelGridCovarianceValid(
-    VoxelGridCovariance* voxels) {
+bool NdtD2D::IsVoxelGridCovarianceValid(VoxelGridCovariance* voxels) {
   CHECK(voxels != nullptr);
   for (const auto& item : voxels->getLeaves()) {
     if (item.second.getPointCount() >= voxels->getMinPointPerVoxel()) {
@@ -164,8 +162,8 @@ int NdtD2D::AlignOnce(const size_t resolution_index) {
 
   BuildProblem(resolution_index,
                config_.resolutions(resolution_index).resolution(),
-               0/*use all neighbors*/, &problem, &inlier_ratio);
-  
+               0 /*use all neighbors*/, &problem, &inlier_ratio);
+
   if (problem.NumResidualBlocks() == 0) {
     inlier_ratio_ = 0.0;
     return 0;
@@ -179,7 +177,8 @@ int NdtD2D::AlignOnce(const size_t resolution_index) {
 
   ceres::Solve(options, &problem, &summary);
 
-  // LOG(INFO) << "resolution: " << config_.resolutions(resolution_index).resolution() << "\n"
+  // LOG(INFO) << "resolution: " <<
+  // config_.resolutions(resolution_index).resolution() << "\n"
   //           << summary.BriefReport();
 
   inlier_ratio_ = inlier_ratio;
@@ -190,64 +189,62 @@ void NdtD2D::BuildProblem(const size_t resolution_index,
                           const double neighbor_radius,
                           const int neighbor_count, ceres::Problem* problem,
                           double* inlier_ratio) {
-    const NdtD2DLossType loss_type =
-        config_.resolutions(resolution_index).loss();
+  const NdtD2DLossType loss_type = config_.resolutions(resolution_index).loss();
 
-    Eigen::Affine3d aligned_pose;
-    aligned_pose.linear() = aligned_rotation_.toRotationMatrix();
-    aligned_pose.translation() = aligned_translation_;
-    
-    uint32_t inlier_count = 0;
-    uint32_t total_count = 0;
+  Eigen::Affine3d aligned_pose;
+  aligned_pose.linear() = aligned_rotation_.toRotationMatrix();
+  aligned_pose.translation() = aligned_translation_;
 
-    for (const auto& item : source_grids_[resolution_index].getLeaves()) {
-      const auto& source_leaf = item.second;
-      if (source_leaf.getPointCount() <
-          source_grids_[resolution_index].getMinPointPerVoxel()) {
+  uint32_t inlier_count = 0;
+  uint32_t total_count = 0;
+
+  for (const auto& item : source_grids_[resolution_index].getLeaves()) {
+    const auto& source_leaf = item.second;
+    if (source_leaf.getPointCount() <
+        source_grids_[resolution_index].getMinPointPerVoxel()) {
+      continue;
+    }
+
+    pcl::PointXYZ mean(source_leaf.getMean().x(), source_leaf.getMean().y(),
+                       source_leaf.getMean().z());
+    pcl::PointXYZ transformed_mean = pcl::transformPoint(mean, aligned_pose);
+    std::vector<VoxelGridCovariance::LeafConstPtr> neighbors;
+    std::vector<float> dists;
+    target_grids_[resolution_index].radiusSearch(
+        transformed_mean, neighbor_radius, neighbors, dists, neighbor_count);
+    ++total_count;
+
+    bool is_inlier = false;
+    for (const auto& target_leaf : neighbors) {
+      if (target_leaf->getPointCount() <
+          target_grids_[resolution_index].getMinPointPerVoxel()) {
         continue;
       }
-
-      pcl::PointXYZ mean(source_leaf.getMean().x(), source_leaf.getMean().y(),
-                         source_leaf.getMean().z());
-      pcl::PointXYZ transformed_mean = pcl::transformPoint(mean, aligned_pose);
-      std::vector<VoxelGridCovariance::LeafConstPtr> neighbors;
-      std::vector<float> dists;
-      target_grids_[resolution_index].radiusSearch(
-        transformed_mean, neighbor_radius, neighbors, dists, neighbor_count);
-      ++total_count;
-
-      bool is_inlier = false;
-      for (const auto& target_leaf : neighbors) {
-        if (target_leaf->getPointCount() <
-            target_grids_[resolution_index].getMinPointPerVoxel()) {
-          continue;
-        }
-        is_inlier=true;
-        ceres::CostFunction* d2d_cost_function = D2DCostFunctor::Create(
-          source_leaf.getMean(), source_leaf.getCov(),
-          target_leaf->getMean(), target_leaf->getCov());
-        problem->AddResidualBlock(
+      is_inlier = true;
+      ceres::CostFunction* d2d_cost_function =
+          D2DCostFunctor::Create(source_leaf.getMean(), source_leaf.getCov(),
+                                 target_leaf->getMean(), target_leaf->getCov());
+      problem->AddResidualBlock(
           d2d_cost_function, CreateLossFunction(loss_type),
-          aligned_rotation_.coeffs().data(),
-          aligned_translation_.data());
-      }
-      if (is_inlier) {
-        inlier_count++;
-      }
+          aligned_rotation_.coeffs().data(), aligned_translation_.data());
     }
+    if (is_inlier) {
+      inlier_count++;
+    }
+  }
 
-    if (problem->NumResidualBlocks() == 0) {
-      *inlier_ratio = 0;
-      return;
-    }
+  if (problem->NumResidualBlocks() == 0) {
+    *inlier_ratio = 0;
+    return;
+  }
 
-    problem->SetParameterization(aligned_rotation_.coeffs().data(),
-                                 new ceres::EigenQuaternionParameterization());
-    if (inlier_ratio) {
-      *inlier_ratio =
-        static_cast<double>(inlier_count) / static_cast<double>(total_count); 
-    }
+  problem->SetParameterization(aligned_rotation_.coeffs().data(),
+                               new ceres::EigenQuaternionParameterization());
+  if (inlier_ratio) {
+    *inlier_ratio =
+        static_cast<double>(inlier_count) / static_cast<double>(total_count);
+  }
 }
 
-}
-}
+}  // namespace mapping
+}  // namespace adlabel

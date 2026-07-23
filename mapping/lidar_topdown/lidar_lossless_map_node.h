@@ -1,10 +1,11 @@
 #pragma once
 
-#include <Eigen/Core>
 #include <cstddef>
 #include <cstdint>
-#include <opencv2/core.hpp>
 #include <string>
+
+#include <Eigen/Core>
+#include <opencv2/core.hpp>
 
 #include "mapping/lidar_topdown/grid_frame.h"
 #include "mapping/lidar_topdown/lossless_map_matrix.h"

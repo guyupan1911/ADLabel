@@ -9,71 +9,72 @@ namespace adlabel {
 namespace mapping {
 
 LocalDataReader::LocalDataReader(const std::string& data_root) {
-    data_root_ = std::filesystem::path(data_root);
+  data_root_ = std::filesystem::path(data_root);
 }
 
 bool LocalDataReader::ReadPointCloud(const std::string& relative_path,
                                      PointCloudXYZIRT::Ptr cloud) const {
-    CHECK(cloud != nullptr);
+  CHECK(cloud != nullptr);
 
-    const auto path = data_root_ / relative_path;
-    if (!std::filesystem::exists(path)) {
-        LOG(ERROR) << "Point cloud file does not exist: " << path.string();
-        return false;
-    }
+  const auto path = data_root_ / relative_path;
+  if (!std::filesystem::exists(path)) {
+    LOG(ERROR) << "Point cloud file does not exist: " << path.string();
+    return false;
+  }
 
-    if (pcl::io::loadPCDFile<PointXYZIRT>(path.string(), *cloud) != 0) {
-        LOG(ERROR) << "Failed to load point cloud: " << path.string();
-        return false;
-    }
+  if (pcl::io::loadPCDFile<PointXYZIRT>(path.string(), *cloud) != 0) {
+    LOG(ERROR) << "Failed to load point cloud: " << path.string();
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
-bool LocalDataReader::ReadImage(const std::string& relative_path, cv::Mat* image, int flags) const {
-    CHECK(image != nullptr);
+bool LocalDataReader::ReadImage(const std::string& relative_path,
+                                cv::Mat* image, int flags) const {
+  CHECK(image != nullptr);
 
-    const auto path = data_root_ / relative_path;
-    if (!std::filesystem::exists(path)) {
-        LOG(ERROR) << "Image file does not exist: " << path.string();
-        return false;
-    }
+  const auto path = data_root_ / relative_path;
+  if (!std::filesystem::exists(path)) {
+    LOG(ERROR) << "Image file does not exist: " << path.string();
+    return false;
+  }
 
-    *image = cv::imread(path.string(), flags);
-    if (image->empty()) {
-        LOG(ERROR) << "Failed to load image: " << path.string();
-        return false;
-    }
+  *image = cv::imread(path.string(), flags);
+  if (image->empty()) {
+    LOG(ERROR) << "Failed to load image: " << path.string();
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
 bool LocalDataReader::ReadBinaryFile(const std::string& relative_path,
-                                    std::vector<char>* data) const {
-    CHECK(data != nullptr);
+                                     std::vector<char>* data) const {
+  CHECK(data != nullptr);
+  data->clear();
+
+  const auto path = data_root_ / relative_path;
+  if (!std::filesystem::exists(path)) {
+    LOG(ERROR) << "Binary file does not exist: " << path.string();
+    return false;
+  }
+
+  std::ifstream input(path, std::ios::binary | std::ios::ate);
+  if (!input) {
+    LOG(ERROR) << "Failed to open binary file: " << path.string();
+    return false;
+  }
+
+  const std::streamsize size = input.tellg();
+  input.seekg(0, std::ios::beg);
+  data->resize(static_cast<std::size_t>(size));
+  if (size > 0 && !input.read(data->data(), size)) {
+    LOG(ERROR) << "Failed to read binary file: " << path.string();
     data->clear();
-
-    const auto path = data_root_ / relative_path;
-    if (!std::filesystem::exists(path)) {
-        LOG(ERROR) << "Binary file does not exist: " << path.string();
-        return false;
-    }
-
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input) {
-        LOG(ERROR) << "Failed to open binary file: " << path.string();
-        return false;
-    }
-
-    const std::streamsize size = input.tellg();
-    input.seekg(0, std::ios::beg);
-    data->resize(static_cast<std::size_t>(size));
-    if (size > 0 && !input.read(data->data(), size)) {
-        LOG(ERROR) << "Failed to read binary file: " << path.string();
-        data->clear();
-        return false;
-    }
-    return true;
+    return false;
+  }
+  return true;
 }
 
 }  // namespace mapping

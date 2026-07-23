@@ -25,18 +25,16 @@ class MatchingPairSearcher {
 
  private:
   void FindFramePairsBetweenTwoTrips(
-    const std::set<std::string>& trip_from_frames,
-    const std::set<std::string>& trip_to_frames,
-    std::vector<FrameIdPair>* frame_pairs);
+      const std::set<std::string>& trip_from_frames,
+      const std::set<std::string>& trip_to_frames,
+      std::vector<FrameIdPair>* frame_pairs);
 
-  void GenerateFramePairs(
-    const std::vector<FrameIdPair>& frame_id_pairs,
-    std::vector<FramePair>* frame_pairs);
+  void GenerateFramePairs(const std::vector<FrameIdPair>& frame_id_pairs,
+                          std::vector<FramePair>* frame_pairs);
 
-  void CollectLocalFrames(
-    const std::string& reference_frame_id,
-    std::vector<Frame>* local_frames,
-    std::vector<Pose3DMessage>* local_relative_poses);
+  void CollectLocalFrames(const std::string& reference_frame_id,
+                          std::vector<Frame>* local_frames,
+                          std::vector<Pose3DMessage>* local_relative_poses);
 
   std::map<std::string, std::set<std::string>> trips_;
   std::map<std::string, Frame> frames_;

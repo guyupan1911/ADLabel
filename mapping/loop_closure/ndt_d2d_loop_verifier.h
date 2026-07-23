@@ -1,11 +1,11 @@
 #pragma once
 
-#include <google/protobuf/repeated_ptr_field.h>
+#include <memory>
+#include <utility>
 
 #include <Eigen/Geometry>
-#include <memory>
+#include <google/protobuf/repeated_ptr_field.h>
 #include <opencv2/core.hpp>
-#include <utility>
 
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pcl_types.h"

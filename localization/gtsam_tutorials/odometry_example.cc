@@ -2,17 +2,17 @@
 #include <gtsam/base/Vector.h>
 #include <gtsam/geometry/Pose2.h>
 #include <gtsam/linear/NoiseModel.h>
-#include <gtsam/nonlinear/NonlinearFactorGraph.h>
-#include <gtsam/slam/BetweenFactor.h>
-#include <gtsam/nonlinear/Values.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/Marginals.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/Values.h>
+#include <gtsam/slam/BetweenFactor.h>
 
 #include "localization/gtsam_tutorials/trajectory_io.h"
 
 using namespace gtsam;
 
-int main(int argc, char**argv) {
+int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
 
   // construct nonlinear factor graph
@@ -35,7 +35,7 @@ int main(int argc, char**argv) {
   initial.insert(1, Pose2(0.5, 0.0, 0.2));
   initial.insert(2, Pose2(2.3, 0.1, -0.2));
   initial.insert(3, Pose2(4.1, 0.1, 0.1));
-  
+
   initial.print("\nInitial Estimate\n");
 
   // optimize using LM
@@ -51,13 +51,12 @@ int main(int argc, char**argv) {
   Marginals marginals(graph, result);
 
   const std::string trajectory_csv =
-    "data/gtsam_results/odometry_trajectory.csv";
+      "data/gtsam_results/odometry_trajectory.csv";
   adlabel::gtsam_tutorials::SavePose2ValuesCsv(
-      trajectory_csv,
-      {
-          {"initial", &initial, nullptr},
-          {"result", &result, &marginals},
-      });
+      trajectory_csv, {
+                          {"initial", &initial, nullptr},
+                          {"result", &result, &marginals},
+                      });
   LOG(INFO) << "Saved trajectory CSV: " << trajectory_csv;
 
   LOG(INFO) << "x1 covariance:\n" << marginals.marginalCovariance(1) << "\n";

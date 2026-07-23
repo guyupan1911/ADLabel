@@ -21,8 +21,8 @@ constexpr double kMaxDistanceFromOriginSquaredM2 =
     kMaxDistanceFromOriginM * kMaxDistanceFromOriginM;
 
 bool ReadInt32Labels(const std::shared_ptr<LocalDataReader>& local_data_reader,
-                      const std::string& uri,
-                      std::vector<std::int32_t>* labels) {
+                     const std::string& uri,
+                     std::vector<std::int32_t>* labels) {
   CHECK(local_data_reader != nullptr);
   CHECK(labels != nullptr);
   labels->clear();
@@ -33,8 +33,8 @@ bool ReadInt32Labels(const std::shared_ptr<LocalDataReader>& local_data_reader,
     return false;
   }
   if (bytes.size() % sizeof(std::int32_t) != 0) {
-    LOG(WARNING) << "lidar_nn_uri file size is not int32-aligned: "
-                 << uri << ", size=" << bytes.size();
+    LOG(WARNING) << "lidar_nn_uri file size is not int32-aligned: " << uri
+                 << ", size=" << bytes.size();
     return false;
   }
 
@@ -63,7 +63,8 @@ FrameData::Cloud::Ptr FilterObjectInstancePointsByLidarNnLabels(
     filtered_cloud->points.push_back(raw_cloud->points[i]);
   }
 
-  filtered_cloud->width = static_cast<std::uint32_t>(filtered_cloud->points.size());
+  filtered_cloud->width =
+      static_cast<std::uint32_t>(filtered_cloud->points.size());
   filtered_cloud->height = 1;
   filtered_cloud->is_dense = raw_cloud->is_dense;
   return filtered_cloud;
@@ -85,8 +86,7 @@ bool GenerateLidarFrameData(
 
   lidar_frame_data->transform_from_sensor_to_imu =
       Pose3D(frame.sensor_to_imu_extrinsic()).GetAffine3D();
-  lidar_frame_data->pose_ecef =
-      Pose3D(frame.refined_pose_3d()).GetAffine3D();
+  lidar_frame_data->pose_ecef = Pose3D(frame.refined_pose_3d()).GetAffine3D();
 
   if (!frame.has_cloud_uri() || frame.cloud_uri().empty()) {
     LOG(WARNING) << "frame has empty cloud_uri: " << frame.fid();
@@ -100,14 +100,16 @@ bool GenerateLidarFrameData(
 
   if (frame.has_lidar_nn_uri() && !frame.lidar_nn_uri().empty()) {
     std::vector<std::int32_t> lidar_nn_labels;
-    if (ReadInt32Labels(local_data_reader, frame.lidar_nn_uri(), &lidar_nn_labels)) {
+    if (ReadInt32Labels(local_data_reader, frame.lidar_nn_uri(),
+                        &lidar_nn_labels)) {
       if (lidar_nn_labels.size() == raw_cloud->points.size()) {
-        lidar_frame_data->raw_cloud =
-            FilterObjectInstancePointsByLidarNnLabels(raw_cloud, lidar_nn_labels);
+        lidar_frame_data->raw_cloud = FilterObjectInstancePointsByLidarNnLabels(
+            raw_cloud, lidar_nn_labels);
       } else {
-        LOG(WARNING) << "lidar_nn_uri label count does not match cloud point count: "
-                     << lidar_nn_labels.size() << " vs " << raw_cloud->points.size()
-                     << ", skip lidar nn label filtering, uri=" << frame.lidar_nn_uri();
+        LOG(WARNING)
+            << "lidar_nn_uri label count does not match cloud point count: "
+            << lidar_nn_labels.size() << " vs " << raw_cloud->points.size()
+            << ", skip lidar nn label filtering, uri=" << frame.lidar_nn_uri();
       }
     }
   }
@@ -115,10 +117,11 @@ bool GenerateLidarFrameData(
   FrameData::Cloud::Ptr range_filtered_cloud(new FrameData::Cloud);
   *range_filtered_cloud = *lidar_frame_data->raw_cloud;
   range_filtered_cloud->points.clear();
-  range_filtered_cloud->points.reserve(lidar_frame_data->raw_cloud->points.size());
+  range_filtered_cloud->points.reserve(
+      lidar_frame_data->raw_cloud->points.size());
   for (const auto& point : lidar_frame_data->raw_cloud->points) {
-    const double distance_squared = point.x * point.x + point.y * point.y +
-                                    point.z * point.z;
+    const double distance_squared =
+        point.x * point.x + point.y * point.y + point.z * point.z;
     if (distance_squared < kMinDistanceFromOriginSquaredM2 ||
         distance_squared > kMaxDistanceFromOriginSquaredM2) {
       continue;

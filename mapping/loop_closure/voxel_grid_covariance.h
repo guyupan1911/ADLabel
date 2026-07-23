@@ -12,8 +12,8 @@
 #endif
 #define USE_UNORDERED_MAP 0
 
-#include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/filters/voxel_grid_covariance.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 namespace adlabel {
 namespace mapping {

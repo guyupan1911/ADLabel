@@ -17,16 +17,17 @@
 #include "mapping/common/file.h"
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pose3d.h"
+#include "mapping/loop_closure/matching_pair_searcher.h"
 #include "mapping/loop_closure/ndt_d2d_loop_verifier.h"
 #include "mapping/loop_closure/pose_graph_optimizer.h"
 #include "mapping/loop_closure/proto/ndt_d2d_config.pb.h"
-#include "mapping/loop_closure/matching_pair_searcher.h"
 #include "mapping/protos/frame.pb.h"
 #include "mapping/protos/frame_pair.pb.h"
 
 DEFINE_string(data_roots, "", "comma-separated bag dump root directories");
 DEFINE_string(output_dir, "", "directory to save multi-trip fusion outputs");
-DEFINE_string(ndt_d2d_config, "mapping/loop_closure/config/ndt_d2d_config.pb.txt",
+DEFINE_string(ndt_d2d_config,
+              "mapping/loop_closure/config/ndt_d2d_config.pb.txt",
               "path to NdtD2DConfig text proto");
 DEFINE_bool(debug, false,
             "generate and save loop verifier visualization artifacts");
@@ -35,11 +36,11 @@ namespace adlabel {
 namespace mapping {
 namespace {
 
-constexpr char kLidarMetadataPath[] = "metadata/lidar/lidar_plusai_unified.meta";
+constexpr char kLidarMetadataPath[] =
+    "metadata/lidar/lidar_plusai_unified.meta";
 
-void WriteOptimizedFramesByTrip(
-    const std::filesystem::path& output_dir,
-    const std::vector<Frame>& optimized_frames) {
+void WriteOptimizedFramesByTrip(const std::filesystem::path& output_dir,
+                                const std::vector<Frame>& optimized_frames) {
   const std::filesystem::path by_trip_dir =
       output_dir / "pose_graph_optimized_frames_by_trip";
   std::error_code error;
@@ -60,23 +61,22 @@ void WriteOptimizedFramesByTrip(
     CHECK(WriteMetaFile(trip_frames_path.string(), trip_id_and_frames.second))
         << "failed to write optimized frames for trip "
         << trip_id_and_frames.first << ": " << trip_frames_path.string();
-    LOG(INFO) << "saved optimized frames for trip "
-              << trip_id_and_frames.first << " to "
-              << trip_frames_path.string() << ", frames="
-              << trip_id_and_frames.second.size();
+    LOG(INFO) << "saved optimized frames for trip " << trip_id_and_frames.first
+              << " to " << trip_frames_path.string()
+              << ", frames=" << trip_id_and_frames.second.size();
   }
 }
 
-void WritePoseGraphResidualSummary(
-    const std::filesystem::path& path,
-    const PoseGraphOptimizationResult& result) {
+void WritePoseGraphResidualSummary(const std::filesystem::path& path,
+                                   const PoseGraphOptimizationResult& result) {
   std::ofstream ofs(path);
   CHECK(ofs.is_open()) << "failed to open pose graph residual summary: "
                        << path.string();
   ofs << "node_count " << result.node_count << "\n";
   ofs << "prior_factor_count " << result.prior_factor_count << "\n";
   ofs << "between_factor_count " << result.between_factor_count << "\n";
-  ofs << "loop_closure_factor_count " << result.loop_closure_factor_count << "\n";
+  ofs << "loop_closure_factor_count " << result.loop_closure_factor_count
+      << "\n";
   ofs << "initial_graph_error " << result.initial_graph_error << "\n";
   ofs << "optimized_graph_error " << result.optimized_graph_error << "\n";
   ofs << "initial_mean_prior_translation_residual "
@@ -119,12 +119,13 @@ int Run() {
   CHECK(!error) << "failed to create output_dir: " << output_dir.string()
                 << ", error: " << error.message();
 
-  const std::filesystem::path data_reader_root = data_roots.front().parent_path();
+  const std::filesystem::path data_reader_root =
+      data_roots.front().parent_path();
   for (const auto& data_root : data_roots) {
     if (data_root.parent_path() != data_reader_root) {
       LOG(WARNING) << "data_root has different parent from first data_root: "
-                   << data_root.string() << ", first parent="
-                   << data_reader_root.string();
+                   << data_root.string()
+                   << ", first parent=" << data_reader_root.string();
     }
   }
   NdtD2DConfig ndt_d2d_config;
@@ -134,12 +135,13 @@ int Run() {
   std::stringstream config_buffer;
   config_buffer << config_file.rdbuf();
   CHECK(google::protobuf::TextFormat::ParseFromString(config_buffer.str(),
-                                                       &ndt_d2d_config))
+                                                      &ndt_d2d_config))
       << "failed to parse --ndt_d2d_config: " << FLAGS_ndt_d2d_config;
   CHECK_GT(ndt_d2d_config.resolutions_size(), 0)
       << "--ndt_d2d_config must contain at least one resolution";
 
-  auto data_reader = std::make_shared<LocalDataReader>(data_reader_root.string());
+  auto data_reader =
+      std::make_shared<LocalDataReader>(data_reader_root.string());
   NdtD2dLoopVerifier loop_verifier(data_reader, ndt_d2d_config);
 
   MatchingPairSearcher searcher;
@@ -148,15 +150,18 @@ int Run() {
 
   for (const auto& data_root : data_roots) {
     const std::filesystem::path metadata_path = data_root / kLidarMetadataPath;
-    const std::vector<Frame> frames = ReadMetaFile<Frame>(metadata_path.string());
-    CHECK(!frames.empty()) << "no frames loaded from " << metadata_path.string();
+    const std::vector<Frame> frames =
+        ReadMetaFile<Frame>(metadata_path.string());
+    CHECK(!frames.empty()) << "no frames loaded from "
+                           << metadata_path.string();
     for (const auto& frame : frames) {
       if (!frame.has_trip_id() || frame.trip_id().empty()) {
         LOG(WARNING) << "skip frame without trip_id: " << frame.fid();
         continue;
       }
       if (!frame.has_fid() || frame.fid().empty()) {
-        LOG(WARNING) << "skip frame without fid, timestamp_ns=" << frame.timestamp_ns();
+        LOG(WARNING) << "skip frame without fid, timestamp_ns="
+                     << frame.timestamp_ns();
         continue;
       }
       searcher.AddFrame(frame);
@@ -177,8 +182,7 @@ int Run() {
     auto from_frame_iter = frame_by_id.find(frame_pair.from_frame().fid());
     CHECK(from_frame_iter != frame_by_id.end())
         << "unknown from frame id: " << frame_pair.from_frame().fid();
-    MatchedFrame* matched_frame =
-        from_frame_iter->second.add_matched_frames();
+    MatchedFrame* matched_frame = from_frame_iter->second.add_matched_frames();
     matched_frame->set_frame_id(frame_pair.to_frame().fid());
     matched_frame->mutable_relative_pose()->CopyFrom(
         Pose3D(loop_verifier_result.refined_pose).GetPose3DMessage());
@@ -190,8 +194,8 @@ int Run() {
       const std::filesystem::path frame_pair_dir = output_dir / frame_pair_id;
       std::filesystem::create_directories(frame_pair_dir, error);
       CHECK(!error) << "failed to create frame_pair_dir: "
-                    << frame_pair_dir.string() << ", error: "
-                    << error.message();
+                    << frame_pair_dir.string()
+                    << ", error: " << error.message();
 
       cv::Mat merged_topdown_compare_image;
       cv::hconcat(loop_verifier_result.merge_before_refine_image,
@@ -226,8 +230,8 @@ int Run() {
 
       const auto save_point_cloud = [](const std::filesystem::path& path,
                                        const auto& cloud) {
-        CHECK(cloud != nullptr) << "cannot write null point cloud: "
-                                << path.string();
+        CHECK(cloud != nullptr)
+            << "cannot write null point cloud: " << path.string();
         CHECK(pcl::io::savePCDFileBinary(path.string(), *cloud) == 0)
             << "failed to write point cloud: " << path.string();
       };
@@ -265,8 +269,7 @@ int Run() {
       output_dir / "pose_graph_optimized_frames.meta";
   CHECK(WriteMetaFile(optimized_frames_path.string(),
                       pose_graph_result.optimized_frames))
-      << "failed to write optimized frames: "
-      << optimized_frames_path.string();
+      << "failed to write optimized frames: " << optimized_frames_path.string();
   WriteOptimizedFramesByTrip(output_dir, pose_graph_result.optimized_frames);
   WritePoseGraphResidualSummary(output_dir / "pose_graph_residuals.txt",
                                 pose_graph_result);

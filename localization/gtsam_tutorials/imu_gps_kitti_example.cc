@@ -1,12 +1,13 @@
-#include <cmath>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include <cerrno>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <vector>
 
 #include <glog/logging.h>
@@ -71,8 +72,8 @@ void EnsureDirectory(const std::string& dir) {
   size_t start = dir.front() == '/' ? 1 : 0;
   while (start <= dir.size()) {
     const size_t end = dir.find('/', start);
-    const std::string part =
-        dir.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    const std::string part = dir.substr(
+        start, end == std::string::npos ? std::string::npos : end - start);
     if (!part.empty()) {
       if (current.size() > 1 && current.back() != '/') {
         current += '/';
@@ -100,8 +101,7 @@ void EnsureParentDirectory(const std::string& path) {
 
 void SaveKittiTrajectoryCsv(const std::string& path,
                             const std::vector<GpsMeasurement>& gps_measurements,
-                            const Values& result,
-                            size_t first_gps_pose) {
+                            const Values& result, size_t first_gps_pose) {
   EnsureParentDirectory(path);
 
   std::ofstream ofs(path);
@@ -140,54 +140,63 @@ void LoadKittiData(KittiCalibration& kitti_calibration,
 
   // read imu metadata file
   std::string imu_metadata_file =
-    "localization/gtsam_tutorials/data/KittiEquivBiasedImu_metadata.txt";
-  
+      "localization/gtsam_tutorials/data/KittiEquivBiasedImu_metadata.txt";
+
   std::ifstream imu_metadata(imu_metadata_file);
   if (!imu_metadata.is_open()) {
     LOG(FATAL) << "Failed to open IMU metadata file: " << imu_metadata_file;
   }
-  std::getline(imu_metadata, line, '\n'); // ignore the first line
+  std::getline(imu_metadata, line, '\n');  // ignore the first line
   std::getline(imu_metadata, line, '\n');
 
   std::istringstream iss(line);
-  if (!(iss >> kitti_calibration.body_ptx
-            >> kitti_calibration.body_pty
-            >> kitti_calibration.body_ptz
-            >> kitti_calibration.body_prx
-            >> kitti_calibration.body_pry
-            >> kitti_calibration.body_prz
-            >> kitti_calibration.accelerometer_sigma
-            >> kitti_calibration.gyroscope_sigma
-            >> kitti_calibration.integration_sigma
-            >> kitti_calibration.accelerometer_bias_sigma
-            >> kitti_calibration.gyroscope_bias_sigma
-            >> kitti_calibration.average_delta_t)) {
+  if (!(iss >> kitti_calibration.body_ptx >> kitti_calibration.body_pty >>
+        kitti_calibration.body_ptz >> kitti_calibration.body_prx >>
+        kitti_calibration.body_pry >> kitti_calibration.body_prz >>
+        kitti_calibration.accelerometer_sigma >>
+        kitti_calibration.gyroscope_sigma >>
+        kitti_calibration.integration_sigma >>
+        kitti_calibration.accelerometer_bias_sigma >>
+        kitti_calibration.gyroscope_bias_sigma >>
+        kitti_calibration.average_delta_t)) {
     LOG(FATAL) << "Fail to parse imu parameters from: " << line;
   }
 
   LOG(INFO) << "\n"
-            << "kitti_calibration.body_ptx: " << kitti_calibration.body_ptx << "\n"
-            << "kitti_calibration.body_pty: " << kitti_calibration.body_pty << "\n"
-            << "kitti_calibration.body_ptz: " << kitti_calibration.body_ptz << "\n"
-            << "kitti_calibration.body_prx: " << kitti_calibration.body_prx << "\n"
-            << "kitti_calibration.body_pry: " << kitti_calibration.body_pry << "\n"
-            << "kitti_calibration.body_prz: " << kitti_calibration.body_prz << "\n"
-            << "kitti_calibration.accelerometer_sigma: " << kitti_calibration.accelerometer_sigma << "\n"
-            << "kitti_calibration.gyroscope_sigma: " << kitti_calibration.gyroscope_sigma << "\n"
-            << "kitti_calibration.integration_sigma: " << kitti_calibration.integration_sigma << "\n"
-            << "kitti_calibration.accelerometer_bias_sigma: " << kitti_calibration.accelerometer_bias_sigma << "\n"
-            << "kitti_calibration.gyroscope_bias_sigma: " << kitti_calibration.gyroscope_bias_sigma << "\n"
-            << "kitti_calibration.average_delta_t: " << kitti_calibration.average_delta_t;
+            << "kitti_calibration.body_ptx: " << kitti_calibration.body_ptx
+            << "\n"
+            << "kitti_calibration.body_pty: " << kitti_calibration.body_pty
+            << "\n"
+            << "kitti_calibration.body_ptz: " << kitti_calibration.body_ptz
+            << "\n"
+            << "kitti_calibration.body_prx: " << kitti_calibration.body_prx
+            << "\n"
+            << "kitti_calibration.body_pry: " << kitti_calibration.body_pry
+            << "\n"
+            << "kitti_calibration.body_prz: " << kitti_calibration.body_prz
+            << "\n"
+            << "kitti_calibration.accelerometer_sigma: "
+            << kitti_calibration.accelerometer_sigma << "\n"
+            << "kitti_calibration.gyroscope_sigma: "
+            << kitti_calibration.gyroscope_sigma << "\n"
+            << "kitti_calibration.integration_sigma: "
+            << kitti_calibration.integration_sigma << "\n"
+            << "kitti_calibration.accelerometer_bias_sigma: "
+            << kitti_calibration.accelerometer_bias_sigma << "\n"
+            << "kitti_calibration.gyroscope_bias_sigma: "
+            << kitti_calibration.gyroscope_bias_sigma << "\n"
+            << "kitti_calibration.average_delta_t: "
+            << kitti_calibration.average_delta_t;
 
   // read imu data
   std::string imu_measurements_file =
-    "localization/gtsam_tutorials/data/KittiEquivBiasedImu.txt";
+      "localization/gtsam_tutorials/data/KittiEquivBiasedImu.txt";
   std::ifstream imu_data(imu_measurements_file);
   if (!imu_data.is_open()) {
     LOG(FATAL) << "Failed to open IMU measurements file: "
                << imu_measurements_file;
   }
-  std::getline(imu_data, line, '\n'); // ignore the first line
+  std::getline(imu_data, line, '\n');  // ignore the first line
 
   while (std::getline(imu_data, line, '\n')) {
     if (line.empty()) {
@@ -195,14 +204,10 @@ void LoadKittiData(KittiCalibration& kitti_calibration,
     }
     std::istringstream iss(line);
     ImuMeasurement measurement;
-    if (!(iss >> measurement.time
-              >> measurement.dt
-              >> measurement.accelerometer[0]
-              >> measurement.accelerometer[1]
-              >> measurement.accelerometer[2]
-              >> measurement.gyroscope[0]
-              >> measurement.gyroscope[1]
-              >> measurement.gyroscope[2])) {
+    if (!(iss >> measurement.time >> measurement.dt >>
+          measurement.accelerometer[0] >> measurement.accelerometer[1] >>
+          measurement.accelerometer[2] >> measurement.gyroscope[0] >>
+          measurement.gyroscope[1] >> measurement.gyroscope[2])) {
       LOG(ERROR) << "Fail to parse imu measurement: " << line;
       continue;
     }
@@ -213,13 +218,13 @@ void LoadKittiData(KittiCalibration& kitti_calibration,
 
   // read gps data
   std::string gps_measurements_file =
-    "localization/gtsam_tutorials/data/KittiGps_converted.txt";
+      "localization/gtsam_tutorials/data/KittiGps_converted.txt";
   std::ifstream gps_data(gps_measurements_file);
   if (!gps_data.is_open()) {
     LOG(FATAL) << "Failed to open GPS measurements file: "
                << gps_measurements_file;
   }
-  std::getline(gps_data, line, '\n'); // ignore the first line
+  std::getline(gps_data, line, '\n');  // ignore the first line
 
   while (std::getline(gps_data, line, '\n')) {
     if (line.empty()) {
@@ -230,13 +235,9 @@ void LoadKittiData(KittiCalibration& kitti_calibration,
     char comma1 = '\0';
     char comma2 = '\0';
     char comma3 = '\0';
-    if (!(iss >> measurement.time
-              >> comma1
-              >> measurement.position[0]
-              >> comma2
-              >> measurement.position[1]
-              >> comma3
-              >> measurement.position[2]) ||
+    if (!(iss >> measurement.time >> comma1 >> measurement.position[0] >>
+          comma2 >> measurement.position[1] >> comma3 >>
+          measurement.position[2]) ||
         comma1 != ',' || comma2 != ',' || comma3 != ',') {
       LOG(ERROR) << "Fail to parse gps measurement: " << line;
       continue;
@@ -269,19 +270,21 @@ int main(int argc, char** argv) {
   auto w_coriolis = Vector3(0, 0, 0);
 
   auto noise_model_gps = noiseModel::Diagonal::Precisions(
-    (Vector6() << Vector3::Constant(0), Vector3::Constant(1.0 / 0.07)).finished());
-  
-  auto current_pose_global = 
-    Pose3(Rot3(), gps_measurements[first_gps_pose].position);
+      (Vector6() << Vector3::Constant(0), Vector3::Constant(1.0 / 0.07))
+          .finished());
+
+  auto current_pose_global =
+      Pose3(Rot3(), gps_measurements[first_gps_pose].position);
   Vector3 current_velocity_global = Vector3::Zero();
   auto current_bias = imuBias::ConstantBias();
 
   auto sigma_init_x = noiseModel::Diagonal::Precisions(
-    (Vector6() << Vector3::Constant(0), Vector3::Constant(1.0)).finished());
+      (Vector6() << Vector3::Constant(0), Vector3::Constant(1.0)).finished());
   auto sigma_init_v = noiseModel::Diagonal::Sigmas(Vector3::Constant(1000));
   auto sigma_init_b = noiseModel::Diagonal::Sigmas(
-    (Vector6() << Vector3::Constant(0.1), Vector3::Constant(5e-5)).finished());
-  
+      (Vector6() << Vector3::Constant(0.1), Vector3::Constant(5e-5))
+          .finished());
+
   // set imu preintegration parameters
   Matrix33 measured_acc_cov =
       I_3x3 * std::pow(kitti_calibration.accelerometer_sigma, 2);
@@ -289,7 +292,7 @@ int main(int argc, char** argv) {
       I_3x3 * std::pow(kitti_calibration.gyroscope_sigma, 2);
   Matrix33 integration_error_cov =
       I_3x3 * std::pow(kitti_calibration.integration_sigma, 2);
-  
+
   auto imu_params = PreintegrationParams::MakeSharedU(g);
   imu_params->accelerometerCovariance = measured_acc_cov;
   imu_params->gyroscopeCovariance = measured_omega_cov;
@@ -325,21 +328,22 @@ int main(int argc, char** argv) {
       new_values.insert(current_vel_key, current_velocity_global);
       new_values.insert(current_bias_key, current_bias);
       new_factors.emplace_shared<PriorFactor<Pose3>>(
-        current_pose_key, current_pose_global, sigma_init_x);
+          current_pose_key, current_pose_global, sigma_init_x);
       new_factors.emplace_shared<PriorFactor<Vector3>>(
-        current_vel_key, current_velocity_global, sigma_init_v);
+          current_vel_key, current_velocity_global, sigma_init_v);
       new_factors.emplace_shared<PriorFactor<imuBias::ConstantBias>>(
-        current_bias_key, current_bias, sigma_init_b);
+          current_bias_key, current_bias, sigma_init_b);
     } else {
-      double t_previous = gps_measurements[i-1].time;
+      double t_previous = gps_measurements[i - 1].time;
       current_summarized_measurement =
-        std::make_shared<PreintegratedImuMeasurements>(imu_params, current_bias);
-      
+          std::make_shared<PreintegratedImuMeasurements>(imu_params,
+                                                         current_bias);
+
       while (j < imu_measurements.size() && imu_measurements[j].time <= t) {
         if (imu_measurements[j].time >= t_previous) {
           current_summarized_measurement->integrateMeasurement(
-            imu_measurements[j].accelerometer, imu_measurements[j].gyroscope,
-            imu_measurements[j].dt);
+              imu_measurements[j].accelerometer, imu_measurements[j].gyroscope,
+              imu_measurements[j].dt);
           included_imu_measurement_count++;
         }
         j++;
@@ -351,31 +355,32 @@ int main(int argc, char** argv) {
       auto previous_bias_key = B(i - 1);
 
       new_factors.emplace_shared<ImuFactor>(
-        previous_pose_key, previous_vel_key,
-        current_pose_key, current_vel_key, previous_bias_key,
-        *current_summarized_measurement);
+          previous_pose_key, previous_vel_key, current_pose_key,
+          current_vel_key, previous_bias_key, *current_summarized_measurement);
 
       auto sigma_between_b = noiseModel::Diagonal::Sigmas(
-        (Vector6() << Vector3::Constant(std::sqrt(included_imu_measurement_count) *
-          kitti_calibration.accelerometer_bias_sigma),
-                      Vector3::Constant(std::sqrt(included_imu_measurement_count) *
-          kitti_calibration.gyroscope_bias_sigma)).finished());
-      
+          (Vector6() << Vector3::Constant(
+               std::sqrt(included_imu_measurement_count) *
+               kitti_calibration.accelerometer_bias_sigma),
+           Vector3::Constant(std::sqrt(included_imu_measurement_count) *
+                             kitti_calibration.gyroscope_bias_sigma))
+              .finished());
+
       new_factors.emplace_shared<BetweenFactor<imuBias::ConstantBias>>(
-        previous_bias_key, current_bias_key, imuBias::ConstantBias(),
-        sigma_between_b);
+          previous_bias_key, current_bias_key, imuBias::ConstantBias(),
+          sigma_between_b);
 
       NavState previous_state(current_pose_global, current_velocity_global);
       NavState predicted_state =
-        current_summarized_measurement->predict(previous_state, current_bias);
-      
+          current_summarized_measurement->predict(previous_state, current_bias);
+
       // create gps factor
-      auto gps_pose =
-        Pose3(predicted_state.pose().rotation(), gps_measurements[i].position);
-      new_factors.emplace_shared<PriorFactor<Pose3>>(
-        current_pose_key, gps_pose, noise_model_gps);
+      auto gps_pose = Pose3(predicted_state.pose().rotation(),
+                            gps_measurements[i].position);
+      new_factors.emplace_shared<PriorFactor<Pose3>>(current_pose_key, gps_pose,
+                                                     noise_model_gps);
       Pose3 current_pose_initial = gps_pose;
-      
+
       new_values.insert(current_pose_key, current_pose_initial);
       new_values.insert(current_vel_key, predicted_state.v());
       new_values.insert(current_bias_key, current_bias);
@@ -397,13 +402,13 @@ int main(int argc, char** argv) {
         current_bias = result.at<imuBias::ConstantBias>(current_bias_key);
       }
     }
-
   }
 
   Values result = isam.calculateEstimate();
   const std::string trajectory_csv =
       "data/gtsam_results/imu_gps_kitti_trajectory.csv";
-  SaveKittiTrajectoryCsv(trajectory_csv, gps_measurements, result, first_gps_pose);
+  SaveKittiTrajectoryCsv(trajectory_csv, gps_measurements, result,
+                         first_gps_pose);
 
   return 0;
 }

@@ -15,30 +15,29 @@ namespace adlabel {
 namespace mapping {
 
 class LocalDataReader {
-  public:
-    explicit LocalDataReader(const std::string& data_root);
+ public:
+  explicit LocalDataReader(const std::string& data_root);
 
-    bool ReadPointCloud(const std::string& relative_path,
-                        PointCloudXYZIRT::Ptr cloud) const;
+  bool ReadPointCloud(const std::string& relative_path,
+                      PointCloudXYZIRT::Ptr cloud) const;
 
-    bool ReadImage(const std::string& relative_path,
-                   cv::Mat* image,
-                   int flags = cv::IMREAD_UNCHANGED) const;
+  bool ReadImage(const std::string& relative_path, cv::Mat* image,
+                 int flags = cv::IMREAD_UNCHANGED) const;
 
-    bool ReadBinaryFile(const std::string& relative_path,
-                        std::vector<char>* data) const;
-    
-    template <typename MessageT>
-    std::vector<MessageT> ReadMetaData(const std::string& relative_path) const {
-      const std::filesystem::path root_path = data_root_ / relative_path;
-      CHECK(std::filesystem::exists(root_path)) << root_path.string()
-        << " does not exist";
-      
-      return ReadMetaFile<MessageT>(root_path.string());
-    }
+  bool ReadBinaryFile(const std::string& relative_path,
+                      std::vector<char>* data) const;
 
-  private:
-    std::filesystem::path data_root_;
+  template <typename MessageT>
+  std::vector<MessageT> ReadMetaData(const std::string& relative_path) const {
+    const std::filesystem::path root_path = data_root_ / relative_path;
+    CHECK(std::filesystem::exists(root_path))
+        << root_path.string() << " does not exist";
+
+    return ReadMetaFile<MessageT>(root_path.string());
+  }
+
+ private:
+  std::filesystem::path data_root_;
 };
 
 }  // namespace mapping

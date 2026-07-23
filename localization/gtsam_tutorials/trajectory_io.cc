@@ -1,13 +1,14 @@
 #include "localization/gtsam_tutorials/trajectory_io.h"
 
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
 #include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <vector>
 
 #include <gtsam/geometry/Pose2.h>
@@ -37,16 +38,16 @@ void EnsureDirectory(const std::string& dir) {
   size_t start = dir.front() == '/' ? 1 : 0;
   while (start <= dir.size()) {
     const size_t end = dir.find('/', start);
-    const std::string part =
-        dir.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    const std::string part = dir.substr(
+        start, end == std::string::npos ? std::string::npos : end - start);
     if (!part.empty()) {
       if (current.size() > 1 && current.back() != '/') {
         current += '/';
       }
       current += part;
       if (mkdir(current.c_str(), 0755) != 0 && errno != EEXIST) {
-        throw std::runtime_error("Failed to create directory " + current + ": " +
-                                 std::strerror(errno));
+        throw std::runtime_error("Failed to create directory " + current +
+                                 ": " + std::strerror(errno));
       }
     }
     if (end == std::string::npos) {
@@ -72,7 +73,8 @@ void SavePose2ValuesCsv(const std::string& path,
 
   std::ofstream ofs(path);
   if (!ofs) {
-    throw std::runtime_error("Failed to open trajectory CSV for writing: " + path);
+    throw std::runtime_error("Failed to open trajectory CSV for writing: " +
+                             path);
   }
 
   ofs << "name,key,x,y,z,theta,qx,qy,qz,qw,cov_xx,cov_xy,cov_yy,cov_tt\n";

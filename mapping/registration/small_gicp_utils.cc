@@ -1,8 +1,9 @@
 #include "mapping/registration/small_gicp_utils.h"
 
-#include <Eigen/Core>
 #include <cmath>
 #include <memory>
+
+#include <Eigen/Core>
 #include <small_gicp/ann/kdtree_tbb.hpp>
 #include <small_gicp/util/downsampling_tbb.hpp>
 #include <small_gicp/util/normal_estimation_tbb.hpp>

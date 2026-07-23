@@ -1,9 +1,9 @@
 #include "mapping/common/scoped_timer.h"
 
-#include <glog/logging.h>
-
 #include <chrono>
 #include <utility>
+
+#include <glog/logging.h>
 
 namespace adlabel {
 namespace mapping {
