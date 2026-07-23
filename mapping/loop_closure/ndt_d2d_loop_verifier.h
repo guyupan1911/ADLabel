@@ -1,17 +1,17 @@
 #pragma once
 
-#include <memory>
-#include <utility>
-
 #include <google/protobuf/repeated_ptr_field.h>
+
 #include <Eigen/Geometry>
+#include <memory>
 #include <opencv2/core.hpp>
+#include <utility>
 
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pcl_types.h"
 #include "mapping/loop_closure/proto/ndt_d2d_config.pb.h"
-#include "mapping/protos/frame_pair.pb.h"
 #include "mapping/protos/frame.pb.h"
+#include "mapping/protos/frame_pair.pb.h"
 #include "mapping/protos/pose.pb.h"
 
 namespace adlabel {
@@ -38,7 +38,7 @@ struct LoopVerifierResult {
 class NdtD2dLoopVerifier {
  public:
   NdtD2dLoopVerifier(std::shared_ptr<LocalDataReader> local_data_reader,
-                       NdtD2DConfig ndt_d2d_config)
+                     NdtD2DConfig ndt_d2d_config)
       : local_data_reader_(std::move(local_data_reader)),
         ndt_d2d_config_(std::move(ndt_d2d_config)) {}
 
@@ -46,9 +46,9 @@ class NdtD2dLoopVerifier {
       const FramePair& frame_pair, LoopVerifierResult* loop_verifier_result,
       bool debug = false);
 
-  void GenerateFramePairTopdownImages(
-      const Eigen::Affine3d& init_pose_relative, cv::Mat* from_image,
-      cv::Mat* to_image, cv::Mat* merged_image);
+  void GenerateFramePairTopdownImages(const Eigen::Affine3d& init_pose_relative,
+                                      cv::Mat* from_image, cv::Mat* to_image,
+                                      cv::Mat* merged_image);
 
   pcl::PointCloud<PointXYZIRT>::Ptr GetFromLocalMap() const {
     return from_local_map_;
@@ -78,5 +78,5 @@ class NdtD2dLoopVerifier {
   Eigen::Affine3d init_relative_pose_ = Eigen::Affine3d::Identity();
 };
 
-}
-}
+}  // namespace mapping
+}  // namespace adlabel

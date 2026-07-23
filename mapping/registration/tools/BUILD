@@ -1,0 +1,13 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+cc_binary(
+    name = "small_gicp_utils_cli",
+    srcs = ["small_gicp_utils_cli.cc"],
+    deps = [
+        "//mapping/common:scoped_timer",
+        "//mapping/registration:small_gicp_utils",
+        "@system_libs//:gflags",
+        "@system_libs//:glog",
+        "@system_libs//:pcl",
+    ],
+)

@@ -13,6 +13,19 @@ cc_library(
 )
 
 cc_library(
+  name = "scoped_timer",
+  hdrs = [
+    "scoped_timer.h",
+  ],
+  srcs = [
+    "scoped_timer.cc",
+  ],
+  deps = [
+    "@system_libs//:glog",
+  ],
+)
+
+cc_library(
   name = "pcl_types",
   hdrs = [
     "pcl_types.h"
