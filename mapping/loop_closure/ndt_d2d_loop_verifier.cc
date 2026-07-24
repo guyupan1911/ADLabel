@@ -1,138 +1,38 @@
 #include "mapping/loop_closure/ndt_d2d_loop_verifier.h"
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 
 #include <Eigen/Geometry>
 #include <glog/logging.h>
+#include <pcl/filters/voxel_grid.h>
 
 #include "mapping/common/pose3d.h"
-#include "mapping/lidar_topdown/lidar_lossless_map_node.h"
 #include "mapping/loop_closure/ndt_d2d.h"
 #include "mapping/mapping_utils/stitch_utils.h"
+#include "mapping/registration/registration_visualization.h"
 
 namespace adlabel {
 namespace mapping {
-
 namespace {
 
-constexpr double kTopdownResolution = 0.1;
-constexpr unsigned int kTopdownImageSize = 1600;
-constexpr char kLocalMapLidarName[] = "local_map";
+constexpr float kNdtInputVoxelSizeM = 0.2f;
 
-pcl::PointCloud<PointXYZIRT>::Ptr TransformFromVehicleFrameToImageFrame(
-    const pcl::PointCloud<PointXYZIRT>::Ptr& cloud) {
+pcl::PointCloud<pcl::PointXYZ>::Ptr DownsampleNdtInput(
+    const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& cloud) {
   CHECK(cloud != nullptr);
-  pcl::PointCloud<PointXYZIRT>::Ptr image_cloud(
-      new pcl::PointCloud<PointXYZIRT>);
-  image_cloud->points.reserve(cloud->points.size());
-  for (const auto& point : cloud->points) {
-    PointXYZIRT image_point = point;
-    image_point.x = -point.y;
-    image_point.y = point.x;
-    image_cloud->points.push_back(image_point);
-  }
-  image_cloud->width = static_cast<std::uint32_t>(image_cloud->points.size());
-  image_cloud->height = 1;
-  image_cloud->is_dense = cloud->is_dense;
-  return image_cloud;
-}
 
-cv::Mat RasterizeTopdownImageFromCloud(
-    const pcl::PointCloud<PointXYZIRT>::Ptr& cloud) {
-  CHECK(cloud != nullptr);
-  CHECK(!cloud->points.empty())
-      << "cannot generate topdown image from empty cloud";
+  pcl::VoxelGrid<pcl::PointXYZ> voxel_grid;
+  voxel_grid.setInputCloud(cloud);
+  voxel_grid.setLeafSize(kNdtInputVoxelSizeM, kNdtInputVoxelSizeM,
+                         kNdtInputVoxelSizeM);
 
-  GridFrame grid_frame;
-  grid_frame.resolution = kTopdownResolution;
-  grid_frame.cols = kTopdownImageSize;
-  grid_frame.rows = kTopdownImageSize;
-  grid_frame.top_left_corner = {
-      -static_cast<double>(grid_frame.cols) * 0.5 * kTopdownResolution,
-      static_cast<double>(grid_frame.rows) * 0.5 * kTopdownResolution,
-  };
-
-  LidarLosslessMapNode node;
-  node.Init(grid_frame,
-            LidarLosslessMapNode::IntensityMappingMode::kLogarithmic,
-            LidarLosslessMapNode::IntensityAggregationMode::kMean);
-
-  for (const auto& point : cloud->points) {
-    const float clamped_intensity =
-        std::max(0.0f, std::min(255.0f, point.intensity));
-    node.SetValue(Eigen::Vector3d(point.x, point.y, point.z),
-                  kLocalMapLidarName,
-                  static_cast<unsigned char>(clamped_intensity));
-  }
-
-  cv::Mat image;
-  node.GetIntensityImage(&image, 1);
-  return image;
-}
-
-pcl::PointCloud<PointXYZIRT>::Ptr TransformCloud(
-    const pcl::PointCloud<PointXYZIRT>::Ptr& cloud,
-    const Eigen::Affine3d& transform) {
-  CHECK(cloud != nullptr);
-  pcl::PointCloud<PointXYZIRT>::Ptr transformed_cloud(
-      new pcl::PointCloud<PointXYZIRT>);
-  transformed_cloud->points.reserve(cloud->points.size());
-  for (const auto& point : cloud->points) {
-    PointXYZIRT transformed_point = point;
-    const Eigen::Vector3d p_transformed =
-        transform * Eigen::Vector3d(point.x, point.y, point.z);
-    transformed_point.x = static_cast<float>(p_transformed.x());
-    transformed_point.y = static_cast<float>(p_transformed.y());
-    transformed_point.z = static_cast<float>(p_transformed.z());
-    transformed_cloud->points.push_back(transformed_point);
-  }
-  transformed_cloud->width =
-      static_cast<std::uint32_t>(transformed_cloud->points.size());
-  transformed_cloud->height = 1;
-  transformed_cloud->is_dense = cloud->is_dense;
-  return transformed_cloud;
-}
-
-pcl::PointCloud<PointXYZIRT>::Ptr MergeClouds(
-    const pcl::PointCloud<PointXYZIRT>::Ptr& first,
-    const pcl::PointCloud<PointXYZIRT>::Ptr& second) {
-  CHECK(first != nullptr);
-  CHECK(second != nullptr);
-  pcl::PointCloud<PointXYZIRT>::Ptr merged(new pcl::PointCloud<PointXYZIRT>);
-  merged->points.reserve(first->points.size() + second->points.size());
-  merged->points.insert(merged->points.end(), first->points.begin(),
-                        first->points.end());
-  merged->points.insert(merged->points.end(), second->points.begin(),
-                        second->points.end());
-  merged->width = static_cast<std::uint32_t>(merged->points.size());
-  merged->height = 1;
-  merged->is_dense = first->is_dense && second->is_dense;
-  return merged;
-}
-
-void GenerateTopdownImageFromCloud(
-    const pcl::PointCloud<PointXYZIRT>::Ptr& from_cloud,
-    const pcl::PointCloud<PointXYZIRT>::Ptr& to_cloud,
-    const Eigen::Affine3d& init_pose_relative, cv::Mat* from_image,
-    cv::Mat* to_image, cv::Mat* merged_image,
-    pcl::PointCloud<PointXYZIRT>::Ptr* merged_cloud) {
-  CHECK(from_image != nullptr);
-  CHECK(to_image != nullptr);
-  CHECK(merged_image != nullptr);
-  CHECK(merged_cloud != nullptr);
-
-  pcl::PointCloud<PointXYZIRT>::Ptr transformed_from_cloud =
-      TransformCloud(from_cloud, init_pose_relative);
-  *merged_cloud = MergeClouds(transformed_from_cloud, to_cloud);
-
-  *from_image = RasterizeTopdownImageFromCloud(
-      TransformFromVehicleFrameToImageFrame(from_cloud));
-  *to_image = RasterizeTopdownImageFromCloud(
-      TransformFromVehicleFrameToImageFrame(to_cloud));
-  *merged_image = RasterizeTopdownImageFromCloud(
-      TransformFromVehicleFrameToImageFrame(*merged_cloud));
+  pcl::PointCloud<pcl::PointXYZ>::Ptr downsampled_cloud(
+      new pcl::PointCloud<pcl::PointXYZ>);
+  voxel_grid.filter(*downsampled_cloud);
+  LOG(INFO) << "NDT input voxel downsampling: " << cloud->size() << " -> "
+            << downsampled_cloud->size()
+            << " points, leaf_size=" << kNdtInputVoxelSizeM << " m";
+  return downsampled_cloud;
 }
 
 }  // namespace
@@ -142,41 +42,35 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
     const bool debug) {
   CHECK(loop_verifier_result != nullptr);
 
-  from_local_map_ =
+  const pcl::PointCloud<PointXYZIRT>::Ptr from_local_map =
       StitchLocalMap(frame_pair.from_frame(), frame_pair.from_local_frames(),
                      frame_pair.from_relative_poses());
 
-  to_local_map_ =
+  const pcl::PointCloud<PointXYZIRT>::Ptr to_local_map =
       StitchLocalMap(frame_pair.to_frame(), frame_pair.to_local_frames(),
                      frame_pair.to_relative_poses());
 
-  init_relative_pose_ =
+  const Eigen::Affine3d init_relative_pose =
       Pose3D(frame_pair.to_frame().refined_pose_3d()).GetAffine3D().inverse() *
       Pose3D(frame_pair.from_frame().refined_pose_3d()).GetAffine3D();
 
-  cv::Mat source_topdown_image;
-  cv::Mat target_topdown_image;
-  cv::Mat merge_before_refine_image;
-  pcl::PointCloud<PointXYZIRT>::Ptr merged_before_refine_cloud;
-  if (debug) {
-    GenerateTopdownImageFromCloud(
-        from_local_map_, to_local_map_, init_relative_pose_,
-        &source_topdown_image, &target_topdown_image,
-        &merge_before_refine_image, &merged_before_refine_cloud);
-  }
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr from_ndt_cloud =
+      DownsampleNdtInput(ToPclCloud(from_local_map));
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr to_ndt_cloud =
+      DownsampleNdtInput(ToPclCloud(to_local_map));
 
   NdtD2D ndt_d2d(ndt_d2d_config_);
-  ndt_d2d.SetInputTarget(ToPclCloud(to_local_map_));
-  ndt_d2d.SetInputSource(ToPclCloud(from_local_map_));
+  ndt_d2d.SetInputTarget(to_ndt_cloud);
+  ndt_d2d.SetInputSource(from_ndt_cloud);
 
-  Eigen::Affine3d refined_pose = init_relative_pose_;
+  Eigen::Affine3d refined_pose = init_relative_pose;
   double inlier_ratio = 0.0;
   int num_iterations = 0;
-  const bool success = ndt_d2d.Align(init_relative_pose_, &inlier_ratio,
+  const bool success = ndt_d2d.Align(init_relative_pose, &inlier_ratio,
                                      &num_iterations, &refined_pose);
   if (!success) {
     LOG(WARNING) << "NDT-D2D failed, use initial relative pose";
-    refined_pose = init_relative_pose_;
+    refined_pose = init_relative_pose;
   } else {
     LOG(INFO) << "NDT-D2D finished, inlier_ratio=" << inlier_ratio
               << ", iterations=" << num_iterations;
@@ -186,23 +80,21 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
   Eigen::Matrix3d position_covariance;
   ndt_d2d.CompuateCovariance(&orientation_covariance, &position_covariance);
 
-  LOG(ERROR) << "orientation_covariance: \n" << orientation_covariance;
-  LOG(ERROR) << "position_covariance: \n" << position_covariance;
+  // LOG(ERROR) << "orientation_covariance: \n" << orientation_covariance;
+  // LOG(ERROR) << "position_covariance: \n" << position_covariance;
 
-  cv::Mat merge_after_refine_image;
-  pcl::PointCloud<PointXYZIRT>::Ptr merged_after_refine_cloud;
   if (debug) {
-    const auto generate_after_image_start = std::chrono::steady_clock::now();
-    GenerateTopdownImageFromCloud(from_local_map_, to_local_map_, refined_pose,
-                                  &source_topdown_image, &target_topdown_image,
-                                  &merge_after_refine_image,
-                                  &merged_after_refine_cloud);
-    const auto generate_after_image_end = std::chrono::steady_clock::now();
-    LOG(INFO) << "GenerateFramePairTopdownImages after refine cost: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(
-                     generate_after_image_end - generate_after_image_start)
-                     .count()
-              << " ms";
+    Eigen::Isometry3d initial_target_source = Eigen::Isometry3d::Identity();
+    initial_target_source.matrix() = init_relative_pose.matrix();
+    Eigen::Isometry3d optimized_target_source = Eigen::Isometry3d::Identity();
+    optimized_target_source.matrix() = refined_pose.matrix();
+
+    RegistrationVisualizationOptions options;
+    options.downsample_size = 0.0;
+    loop_verifier_result->topdown_images = RenderRegistrationTopdownImages(
+        *to_local_map, *from_local_map, initial_target_source,
+        optimized_target_source, success,
+        static_cast<std::size_t>(num_iterations), inlier_ratio, options);
   }
 
   loop_verifier_result->refined_pose = refined_pose;
@@ -210,12 +102,6 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
   loop_verifier_result->num_iterations = num_iterations;
   loop_verifier_result->orientation_covariance = orientation_covariance;
   loop_verifier_result->position_covariance = position_covariance;
-  loop_verifier_result->source_topdown_image = source_topdown_image;
-  loop_verifier_result->target_topdown_image = target_topdown_image;
-  loop_verifier_result->merge_before_refine_image = merge_before_refine_image;
-  loop_verifier_result->merge_after_refine_image = merge_after_refine_image;
-  loop_verifier_result->merged_before_refine_cloud = merged_before_refine_cloud;
-  loop_verifier_result->merged_after_refine_cloud = merged_after_refine_cloud;
   return refined_pose;
 }
 
@@ -242,18 +128,6 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr NdtD2dLoopVerifier::ToPclCloud(
   pcl_cloud->height = 1;
   pcl_cloud->is_dense = cloud->is_dense;
   return pcl_cloud;
-}
-
-void NdtD2dLoopVerifier::GenerateFramePairTopdownImages(
-    const Eigen::Affine3d& init_pose_relative, cv::Mat* from_image,
-    cv::Mat* to_image, cv::Mat* merged_image) {
-  CHECK(from_local_map_ != nullptr) << "from_local_map_ has not been stitched";
-  CHECK(to_local_map_ != nullptr) << "to_local_map_ has not been stitched";
-
-  pcl::PointCloud<PointXYZIRT>::Ptr merged_cloud;
-  GenerateTopdownImageFromCloud(from_local_map_, to_local_map_,
-                                init_pose_relative, from_image, to_image,
-                                merged_image, &merged_cloud);
 }
 
 pcl::PointCloud<PointXYZIRT>::Ptr NdtD2dLoopVerifier::StitchLocalMap(

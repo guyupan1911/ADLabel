@@ -5,7 +5,6 @@
 
 #include <Eigen/Geometry>
 #include <google/protobuf/repeated_ptr_field.h>
-#include <opencv2/core.hpp>
 
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pcl_types.h"
@@ -13,6 +12,7 @@
 #include "mapping/protos/frame.pb.h"
 #include "mapping/protos/frame_pair.pb.h"
 #include "mapping/protos/pose.pb.h"
+#include "mapping/registration/registration_visualization.h"
 
 namespace adlabel {
 namespace mapping {
@@ -27,12 +27,7 @@ struct LoopVerifierResult {
   Eigen::Matrix3d orientation_covariance;
   Eigen::Matrix3d position_covariance;
 
-  cv::Mat source_topdown_image;
-  cv::Mat target_topdown_image;
-  cv::Mat merge_before_refine_image;
-  cv::Mat merge_after_refine_image;
-  pcl::PointCloud<PointXYZIRT>::Ptr merged_before_refine_cloud;
-  pcl::PointCloud<PointXYZIRT>::Ptr merged_after_refine_cloud;
+  RegistrationTopdownImages topdown_images;
 };
 
 class NdtD2dLoopVerifier {
@@ -46,22 +41,6 @@ class NdtD2dLoopVerifier {
       const FramePair& frame_pair, LoopVerifierResult* loop_verifier_result,
       bool debug = false);
 
-  void GenerateFramePairTopdownImages(const Eigen::Affine3d& init_pose_relative,
-                                      cv::Mat* from_image, cv::Mat* to_image,
-                                      cv::Mat* merged_image);
-
-  pcl::PointCloud<PointXYZIRT>::Ptr GetFromLocalMap() const {
-    return from_local_map_;
-  }
-
-  pcl::PointCloud<PointXYZIRT>::Ptr GetToLocalMap() const {
-    return to_local_map_;
-  }
-
-  const Eigen::Affine3d& GetInitRelativePose() const {
-    return init_relative_pose_;
-  }
-
  private:
   pcl::PointCloud<pcl::PointXYZ>::Ptr ToPclCloud(
       const pcl::PointCloud<PointXYZIRT>::Ptr& cloud) const;
@@ -73,9 +52,6 @@ class NdtD2dLoopVerifier {
 
   std::shared_ptr<LocalDataReader> local_data_reader_;
   NdtD2DConfig ndt_d2d_config_;
-  pcl::PointCloud<PointXYZIRT>::Ptr from_local_map_;
-  pcl::PointCloud<PointXYZIRT>::Ptr to_local_map_;
-  Eigen::Affine3d init_relative_pose_ = Eigen::Affine3d::Identity();
 };
 
 }  // namespace mapping

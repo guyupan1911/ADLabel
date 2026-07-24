@@ -92,10 +92,9 @@ cc_binary(
       "//mapping/loop_closure/proto:ndt_d2d_config_cc_proto",
       "//mapping/protos:frame_cc_proto",
       "//mapping/protos:frame_pair_cc_proto",
+      "//mapping/registration:registration_visualization",
       "@system_libs//:gflags",
       "@system_libs//:glog",
-      "@system_libs//:opencv",
-      "@system_libs//:pcl",
     ],
 )
 

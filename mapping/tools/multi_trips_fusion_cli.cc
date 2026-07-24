@@ -10,9 +10,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <google/protobuf/text_format.h>
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <pcl/io/pcd_io.h>
 
 #include "mapping/common/file.h"
 #include "mapping/common/local_data_reader.h"
@@ -23,13 +20,14 @@
 #include "mapping/loop_closure/proto/ndt_d2d_config.pb.h"
 #include "mapping/protos/frame.pb.h"
 #include "mapping/protos/frame_pair.pb.h"
+#include "mapping/registration/registration_visualization.h"
 
 DEFINE_string(data_roots, "", "comma-separated bag dump root directories");
 DEFINE_string(output_dir, "", "directory to save multi-trip fusion outputs");
 DEFINE_string(ndt_d2d_config,
               "mapping/loop_closure/config/ndt_d2d_config.pb.txt",
               "path to NdtD2DConfig text proto");
-DEFINE_bool(debug, false,
+DEFINE_bool(debug, true,
             "generate and save loop verifier visualization artifacts");
 
 namespace adlabel {
@@ -192,68 +190,10 @@ int Run() {
       const std::string frame_pair_id =
           frame_pair.from_frame().fid() + "__" + frame_pair.to_frame().fid();
       const std::filesystem::path frame_pair_dir = output_dir / frame_pair_id;
-      std::filesystem::create_directories(frame_pair_dir, error);
-      CHECK(!error) << "failed to create frame_pair_dir: "
-                    << frame_pair_dir.string()
-                    << ", error: " << error.message();
-
-      cv::Mat merged_topdown_compare_image;
-      cv::hconcat(loop_verifier_result.merge_before_refine_image,
-                  loop_verifier_result.merge_after_refine_image,
-                  merged_topdown_compare_image);
-
-      const std::filesystem::path from_image_path =
-          frame_pair_dir / "from_topdown.png";
-      const std::filesystem::path to_image_path =
-          frame_pair_dir / "to_topdown.png";
-      const std::filesystem::path merged_before_image_path =
-          frame_pair_dir / "merged_topdown_before.png";
-      const std::filesystem::path merged_after_image_path =
-          frame_pair_dir / "merged_topdown_after.png";
-      const std::filesystem::path merged_compare_image_path =
-          frame_pair_dir / "merged_topdown_compare.png";
-      CHECK(cv::imwrite(from_image_path.string(),
-                        loop_verifier_result.source_topdown_image))
-          << "failed to write image: " << from_image_path.string();
-      CHECK(cv::imwrite(to_image_path.string(),
-                        loop_verifier_result.target_topdown_image))
-          << "failed to write image: " << to_image_path.string();
-      CHECK(cv::imwrite(merged_before_image_path.string(),
-                        loop_verifier_result.merge_before_refine_image))
-          << "failed to write image: " << merged_before_image_path.string();
-      CHECK(cv::imwrite(merged_after_image_path.string(),
-                        loop_verifier_result.merge_after_refine_image))
-          << "failed to write image: " << merged_after_image_path.string();
-      CHECK(cv::imwrite(merged_compare_image_path.string(),
-                        merged_topdown_compare_image))
-          << "failed to write image: " << merged_compare_image_path.string();
-
-      const auto save_point_cloud = [](const std::filesystem::path& path,
-                                       const auto& cloud) {
-        CHECK(cloud != nullptr)
-            << "cannot write null point cloud: " << path.string();
-        CHECK(pcl::io::savePCDFileBinary(path.string(), *cloud) == 0)
-            << "failed to write point cloud: " << path.string();
-      };
-
-      const std::filesystem::path from_local_map_path =
-          frame_pair_dir / "from_local_map.pcd";
-      const std::filesystem::path to_local_map_path =
-          frame_pair_dir / "to_local_map.pcd";
-      const std::filesystem::path merged_before_local_map_path =
-          frame_pair_dir / "merged_local_map_before_refine.pcd";
-      const std::filesystem::path merged_after_local_map_path =
-          frame_pair_dir / "merged_local_map_after_refine.pcd";
-      const std::filesystem::path merged_local_map_path =
-          frame_pair_dir / "merged_local_map.pcd";
-      save_point_cloud(from_local_map_path, loop_verifier.GetFromLocalMap());
-      save_point_cloud(to_local_map_path, loop_verifier.GetToLocalMap());
-      save_point_cloud(merged_before_local_map_path,
-                       loop_verifier_result.merged_before_refine_cloud);
-      save_point_cloud(merged_after_local_map_path,
-                       loop_verifier_result.merged_after_refine_cloud);
-      save_point_cloud(merged_local_map_path,
-                       loop_verifier_result.merged_after_refine_cloud);
+      CHECK(SaveRegistrationTopdownImages(loop_verifier_result.topdown_images,
+                                          frame_pair_dir.string()))
+          << "failed to save registration topdown images to "
+          << frame_pair_dir.string();
     }
   }
 

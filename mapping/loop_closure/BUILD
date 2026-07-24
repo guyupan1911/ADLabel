@@ -53,16 +53,17 @@ cc_library(
         "//mapping/loop_closure/proto:ndt_d2d_config_cc_proto",
         "//mapping/common:local_data_reader",
         "//mapping/common:pose3d",
-        "//mapping/lidar_topdown:lidar_topdown",
         "//mapping/mapping_utils:frame_data",
         "//mapping/mapping_utils:stitch_utils",
         "//mapping/protos:frame_cc_proto",
         "//mapping/protos:frame_pair_cc_proto",
         "//mapping/protos:pose_cc_proto",
+        "//mapping/registration:registration_visualization",
         "@system_libs//:eigen",
         "@system_libs//:geographiclib",
         "@system_libs//:glog",
         "@system_libs//:opencv",
+        "@system_libs//:pcl",
     ],
 )
 

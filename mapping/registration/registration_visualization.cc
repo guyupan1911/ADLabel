@@ -84,15 +84,15 @@ cv::Mat RenderTopdownImage(const PointCloudXYZIRT& target,
   return image;
 }
 
-void DrawRegistrationStats(const SmallGicpRegistrationResult& result,
-                           cv::Mat* image) {
+void DrawRegistrationStats(bool converged, std::size_t iterations,
+                           double inlier_ratio_value, cv::Mat* image) {
   std::ostringstream inlier_ratio;
   inlier_ratio << std::fixed << std::setprecision(2)
-               << result.inlier_ratio * 100.0 << "%";
+               << inlier_ratio_value * 100.0 << "%";
 
   const std::vector<std::string> lines = {
-      std::string("converged: ") + (result.converged ? "true" : "false"),
-      "iterations: " + std::to_string(result.iterations),
+      std::string("converged: ") + (converged ? "true" : "false"),
+      "iterations: " + std::to_string(iterations),
       "inlier_ratio: " + inlier_ratio.str(),
   };
 
@@ -117,7 +117,8 @@ void DrawRegistrationStats(const SmallGicpRegistrationResult& result,
 RegistrationTopdownImages RenderRegistrationTopdownImages(
     const PointCloudXYZIRT& target, const PointCloudXYZIRT& source,
     const Eigen::Isometry3d& initial_target_source,
-    const SmallGicpRegistrationResult& result,
+    const Eigen::Isometry3d& optimized_target_source, bool converged,
+    std::size_t iterations, double inlier_ratio,
     const RegistrationVisualizationOptions& options) {
   if (!std::isfinite(options.downsample_size) ||
       options.downsample_size < 0.0 || !std::isfinite(options.resolution) ||
@@ -146,9 +147,19 @@ RegistrationTopdownImages RenderRegistrationTopdownImages(
                          initial_target_source, options);
   images.optimized =
       RenderTopdownImage(*visualization_target, *visualization_source,
-                         result.T_target_source, options);
-  DrawRegistrationStats(result, &images.optimized);
+                         optimized_target_source, options);
+  DrawRegistrationStats(converged, iterations, inlier_ratio, &images.optimized);
   return images;
+}
+
+RegistrationTopdownImages RenderRegistrationTopdownImages(
+    const PointCloudXYZIRT& target, const PointCloudXYZIRT& source,
+    const Eigen::Isometry3d& initial_target_source,
+    const SmallGicpRegistrationResult& result,
+    const RegistrationVisualizationOptions& options) {
+  return RenderRegistrationTopdownImages(
+      target, source, initial_target_source, result.T_target_source,
+      result.converged, result.iterations, result.inlier_ratio, options);
 }
 
 bool SaveRegistrationTopdownImages(const RegistrationTopdownImages& images,

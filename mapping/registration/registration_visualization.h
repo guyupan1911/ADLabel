@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 #include <Eigen/Geometry>
@@ -30,9 +31,18 @@ struct RegistrationVisualizationOptions {
   int point_radius = 1;
 };
 
-// Renders target in green and source in red from a topdown view. Source points
-// overwrite target points where they overlap. Both images use the same
-// target-frame view. Registration statistics are drawn on the optimized image.
+// Renders target in green and source in red from a topdown view. Both images
+// use the same target-frame view. Registration statistics are drawn on the
+// optimized image.
+RegistrationTopdownImages RenderRegistrationTopdownImages(
+    const PointCloudXYZIRT& target, const PointCloudXYZIRT& source,
+    const Eigen::Isometry3d& initial_target_source,
+    const Eigen::Isometry3d& optimized_target_source, bool converged,
+    std::size_t iterations, double inlier_ratio,
+    const RegistrationVisualizationOptions& options =
+        RegistrationVisualizationOptions());
+
+// Convenience overload for small_gicp registration results.
 RegistrationTopdownImages RenderRegistrationTopdownImages(
     const PointCloudXYZIRT& target, const PointCloudXYZIRT& source,
     const Eigen::Isometry3d& initial_target_source,
