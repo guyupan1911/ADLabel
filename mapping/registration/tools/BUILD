@@ -5,7 +5,7 @@ cc_binary(
     srcs = ["small_gicp_utils_cli.cc"],
     deps = [
         "//mapping/common:scoped_timer",
-        "//mapping/registration:small_gicp_utils",
+        "//mapping/registration:small_gicp_adapter",
         "@system_libs//:gflags",
         "@system_libs//:glog",
         "@system_libs//:pcl",
@@ -18,7 +18,7 @@ cc_binary(
     deps = [
         "//mapping/common:scoped_timer",
         "//mapping/registration:registration_visualization",
-        "//mapping/registration:small_gicp_utils",
+        "//mapping/registration:small_gicp_adapter",
         "@system_libs//:eigen",
         "@system_libs//:gflags",
         "@system_libs//:glog",

@@ -91,9 +91,8 @@ void DrawRegistrationStats(const SmallGicpRegistrationResult& result,
                << result.inlier_ratio * 100.0 << "%";
 
   const std::vector<std::string> lines = {
-      std::string("converged: ") +
-          (result.registration.converged ? "true" : "false"),
-      "iterations: " + std::to_string(result.registration.iterations),
+      std::string("converged: ") + (result.converged ? "true" : "false"),
+      "iterations: " + std::to_string(result.iterations),
       "inlier_ratio: " + inlier_ratio.str(),
   };
 
@@ -147,7 +146,7 @@ RegistrationTopdownImages RenderRegistrationTopdownImages(
                          initial_target_source, options);
   images.optimized =
       RenderTopdownImage(*visualization_target, *visualization_source,
-                         result.registration.T_target_source, options);
+                         result.T_target_source, options);
   DrawRegistrationStats(result, &images.optimized);
   return images;
 }

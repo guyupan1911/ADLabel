@@ -9,7 +9,7 @@
 
 #include "mapping/common/scoped_timer.h"
 #include "mapping/registration/registration_visualization.h"
-#include "mapping/registration/small_gicp_utils.h"
+#include "mapping/registration/small_gicp_adapter.h"
 
 DEFINE_string(cloud_source, "", "Path to the source PCD file.");
 DEFINE_string(cloud_target, "", "Path to the target PCD file.");
@@ -22,8 +22,8 @@ namespace {
 
 struct PreparedCloud {
   adlabel::mapping::PointCloudXYZIRT original_cloud;
-  small_gicp::PointCloud::Ptr cloud;
-  adlabel::mapping::SmallGicpKdTree::Ptr kdtree;
+  adlabel::mapping::SmallGicpPointCloudPtr cloud;
+  adlabel::mapping::SmallGicpKdTreePtr kdtree;
 };
 
 PreparedCloud PrepareCloud(const std::string& name, const std::string& path) {
@@ -36,7 +36,7 @@ PreparedCloud PrepareCloud(const std::string& name, const std::string& path) {
   }
   CHECK(!pcl_cloud.empty()) << "PCD file contains no points: " << path;
 
-  small_gicp::PointCloud::Ptr raw_cloud;
+  adlabel::mapping::SmallGicpPointCloudPtr raw_cloud;
   {
     adlabel::mapping::ScopedTimer timer(name + " point cloud conversion");
     raw_cloud = adlabel::mapping::ToSmallGicpPointCloud(pcl_cloud);
@@ -98,12 +98,11 @@ int main(int argc, char** argv) {
                                          *target.kdtree, initial_target_source);
   }
 
-  LOG(INFO) << "GICP result: converged=" << result.registration.converged
-            << ", iterations=" << result.registration.iterations
+  LOG(INFO) << "GICP result: converged=" << result.converged
+            << ", iterations=" << result.iterations
             << ", inlier_ratio=" << result.inlier_ratio
-            << ", error=" << result.registration.error;
-  LOG(INFO) << "T_target_source:\n"
-            << result.registration.T_target_source.matrix();
+            << ", error=" << result.error;
+  LOG(INFO) << "T_target_source:\n" << result.T_target_source.matrix();
 
   adlabel::mapping::RegistrationTopdownImages images;
   {

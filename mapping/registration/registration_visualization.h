@@ -6,7 +6,7 @@
 #include <opencv2/core.hpp>
 
 #include "mapping/common/pcl_types.h"
-#include "mapping/registration/small_gicp_utils.h"
+#include "mapping/registration/small_gicp_types.h"
 
 namespace adlabel {
 namespace mapping {

@@ -4,7 +4,7 @@
 #include <pcl/io/pcd_io.h>
 
 #include "mapping/common/scoped_timer.h"
-#include "mapping/registration/small_gicp_utils.h"
+#include "mapping/registration/small_gicp_adapter.h"
 
 DEFINE_string(pcd_path, "", "Path to the input PCD file.");
 DEFINE_double(leaf_size, 0.25, "Voxel-grid leaf size in meters.");
@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
 
   const auto raw_cloud = adlabel::mapping::ToSmallGicpPointCloud(input);
 
-  small_gicp::PointCloud::Ptr downsampled_cloud;
+  adlabel::mapping::SmallGicpPointCloudPtr downsampled_cloud;
   {
     adlabel::mapping::ScopedTimer timer("small_gicp voxel downsampling");
     downsampled_cloud =

@@ -1,4 +1,4 @@
-#include "mapping/registration/small_gicp_utils.h"
+#include "mapping/registration/small_gicp_adapter.h"
 
 #include <cmath>
 #include <memory>
@@ -14,9 +14,8 @@
 namespace adlabel {
 namespace mapping {
 
-small_gicp::PointCloud::Ptr ToSmallGicpPointCloud(
-    const PointCloudXYZIRT& cloud) {
-  auto output = std::make_shared<small_gicp::PointCloud>();
+SmallGicpPointCloudPtr ToSmallGicpPointCloud(const PointCloudXYZIRT& cloud) {
+  auto output = std::make_shared<SmallGicpPointCloud>();
   output->points.reserve(cloud.size());
 
   for (const auto& point : cloud.points) {
@@ -33,8 +32,8 @@ small_gicp::PointCloud::Ptr ToSmallGicpPointCloud(
   return output;
 }
 
-small_gicp::PointCloud::Ptr VoxelGridDownsample(
-    const small_gicp::PointCloud& cloud, double leaf_size) {
+SmallGicpPointCloudPtr VoxelGridDownsample(const SmallGicpPointCloud& cloud,
+                                           double leaf_size) {
   if (!std::isfinite(leaf_size) || leaf_size <= 0.0) {
     return nullptr;
   }
@@ -42,7 +41,7 @@ small_gicp::PointCloud::Ptr VoxelGridDownsample(
   return small_gicp::voxelgrid_sampling_tbb(cloud, leaf_size);
 }
 
-SmallGicpKdTree::Ptr BuildKdTree(const small_gicp::PointCloud::Ptr& cloud) {
+SmallGicpKdTreePtr BuildKdTree(const SmallGicpPointCloudPtr& cloud) {
   if (!cloud || cloud->empty()) {
     return nullptr;
   }
@@ -51,7 +50,7 @@ SmallGicpKdTree::Ptr BuildKdTree(const small_gicp::PointCloud::Ptr& cloud) {
                                            small_gicp::KdTreeBuilderTBB());
 }
 
-void EstimateCovariances(small_gicp::PointCloud& cloud, SmallGicpKdTree& kdtree,
+void EstimateCovariances(SmallGicpPointCloud& cloud, SmallGicpKdTree& kdtree,
                          int num_neighbors) {
   if (cloud.empty() || num_neighbors <= 0) {
     return;
@@ -61,7 +60,7 @@ void EstimateCovariances(small_gicp::PointCloud& cloud, SmallGicpKdTree& kdtree,
 }
 
 SmallGicpRegistrationResult AlignGicp(
-    const small_gicp::PointCloud& target, const small_gicp::PointCloud& source,
+    const SmallGicpPointCloud& target, const SmallGicpPointCloud& source,
     const SmallGicpKdTree& target_kdtree,
     const Eigen::Isometry3d& initial_target_source,
     const SmallGicpRegistrationOptions& options) {
@@ -75,11 +74,16 @@ SmallGicpRegistrationResult AlignGicp(
   registration.optimizer.max_iterations = options.max_iterations;
   registration.optimizer.verbose = options.verbose;
 
-  SmallGicpRegistrationResult result;
-  result.registration =
+  const small_gicp::RegistrationResult internal_result =
       registration.align(target, source, target_kdtree, initial_target_source);
+
+  SmallGicpRegistrationResult result;
+  result.T_target_source = internal_result.T_target_source;
+  result.converged = internal_result.converged;
+  result.iterations = internal_result.iterations;
+  result.error = internal_result.error;
   if (!source.empty()) {
-    result.inlier_ratio = static_cast<double>(result.registration.num_inliers) /
+    result.inlier_ratio = static_cast<double>(internal_result.num_inliers) /
                           static_cast<double>(source.size());
   }
   return result;
