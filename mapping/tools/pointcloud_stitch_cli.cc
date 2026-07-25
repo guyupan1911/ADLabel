@@ -1,8 +1,6 @@
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
-#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -11,13 +9,10 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <pcl/common/transforms.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 
 #include "mapping/common/local_data_reader.h"
 #include "mapping/common/pcl_types.h"
-#include "mapping/common/pose3d.h"
 #include "mapping/mapping_utils/stitch_utils.h"
 #include "mapping/protos/frame.pb.h"
 
@@ -28,75 +23,12 @@ DEFINE_string(lidar_metadata,
 DEFINE_string(data_root, "data/plus_mapping", "root directory for sensor data");
 DEFINE_string(output_dir, "data/plus_mapping/pointcloud_stitch",
               "directory to save stitched cloud.pcd");
-DEFINE_double(frame_leaf_size, 0.4,
-              "voxel grid leaf size before stitching, in meters");
-DEFINE_double(output_leaf_size, 0.4,
-              "voxel grid leaf size after stitching, in meters");
 DEFINE_double(distance, 0.0,
               "trajectory split distance in meters, 0 disables splitting");
 
 using namespace adlabel::mapping;
 
 namespace {
-
-constexpr double kSingleFrameRoiForwardRangeM = 100.0;
-constexpr double kSingleFrameRoiLateralRangeM = 100.0;
-
-const Pose3DMessage* GetLocalizationPose(const Frame& frame) {
-  return frame.has_refined_pose_3d() ? &frame.refined_pose_3d() : nullptr;
-}
-
-const char* LocalizationPoseName() { return "refined_pose_3d"; }
-
-PointCloudXYZIRT::Ptr PassThroughCloud(const PointCloudXYZIRT::ConstPtr& cloud,
-                                       const std::string& field_name,
-                                       double min_value, double max_value) {
-  pcl::PassThrough<PointXYZIRT> pass_through;
-  pass_through.setInputCloud(cloud);
-  pass_through.setFilterFieldName(field_name);
-  pass_through.setFilterLimits(static_cast<float>(min_value),
-                               static_cast<float>(max_value));
-
-  PointCloudXYZIRT::Ptr filtered(new PointCloudXYZIRT);
-  pass_through.filter(*filtered);
-  return filtered;
-}
-
-PointCloudXYZIRT::Ptr CropSingleFrameCloud(
-    const PointCloudXYZIRT::ConstPtr& cloud) {
-  PointCloudXYZIRT::Ptr filtered = PassThroughCloud(
-      cloud, "x", -kSingleFrameRoiForwardRangeM, kSingleFrameRoiForwardRangeM);
-  filtered = PassThroughCloud(filtered, "y", -kSingleFrameRoiLateralRangeM,
-                              kSingleFrameRoiLateralRangeM);
-
-  // LOG(INFO) << "single-frame ROI crop: " << cloud->size()
-  //           << " -> " << filtered->size()
-  //           << " points, x=[" << -kSingleFrameRoiForwardRangeM
-  //           << ", " << kSingleFrameRoiForwardRangeM
-  //           << "], y=[" << -kSingleFrameRoiLateralRangeM
-  //           << ", " << kSingleFrameRoiLateralRangeM
-  //           << "], z=unlimited";
-  return filtered;
-}
-
-PointCloudXYZIRT::Ptr DownsampleCloud(const PointCloudXYZIRT::ConstPtr& cloud,
-                                      double leaf_size) {
-  if (leaf_size <= 0.0) {
-    PointCloudXYZIRT::Ptr copy(new PointCloudXYZIRT);
-    *copy = *cloud;
-    return copy;
-  }
-
-  pcl::VoxelGrid<PointXYZIRT> voxel_grid;
-  voxel_grid.setInputCloud(cloud);
-  voxel_grid.setLeafSize(static_cast<float>(leaf_size),
-                         static_cast<float>(leaf_size),
-                         static_cast<float>(leaf_size));
-
-  PointCloudXYZIRT::Ptr downsampled(new PointCloudXYZIRT);
-  voxel_grid.filter(*downsampled);
-  return downsampled;
-}
 
 double PoseDistance2D(const Eigen::Affine3d& left,
                       const Eigen::Affine3d& right) {
@@ -119,17 +51,13 @@ bool SaveStitchedCloud(const PointCloudXYZIRT::ConstPtr& stitched_cloud,
     return false;
   }
 
-  PointCloudXYZIRT::Ptr output_cloud =
-      DownsampleCloud(stitched_cloud, FLAGS_output_leaf_size);
-  if (pcl::io::savePCDFileBinary(output_path.string(), *output_cloud) < 0) {
+  if (pcl::io::savePCDFileBinary(output_path.string(), *stitched_cloud) < 0) {
     LOG(ERROR) << "failed to save stitched cloud: " << output_path.string();
     return false;
   }
 
-  LOG(INFO) << "stitched " << loaded_frame_count
-            << " frames, before final downsample: " << stitched_cloud->size()
-            << ", saved: " << output_cloud->size() << " points to "
-            << output_path.string();
+  LOG(INFO) << "stitched " << loaded_frame_count << " frames, saved "
+            << stitched_cloud->size() << " points to " << output_path.string();
   return true;
 }
 
@@ -143,7 +71,7 @@ int main(int argc, char** argv) {
   auto data_reader = std::make_shared<LocalDataReader>(FLAGS_data_root);
   auto lidar_frames = data_reader->ReadMetaData<Frame>(FLAGS_lidar_metadata);
   LOG(INFO) << "lidar_frames size: " << lidar_frames.size();
-  LOG(INFO) << "localization pose source: " << LocalizationPoseName();
+  LOG(INFO) << "localization pose source: pose_utm";
   const std::filesystem::path output_dir(FLAGS_output_dir);
   std::error_code error;
   std::filesystem::create_directories(output_dir, error);
@@ -169,10 +97,8 @@ int main(int argc, char** argv) {
       LOG(WARNING) << "skip frame without cloud_uri: " << frame.fid();
       continue;
     }
-    const Pose3DMessage* localization_pose = GetLocalizationPose(frame);
-    if (localization_pose == nullptr) {
-      LOG(WARNING) << "skip frame without " << LocalizationPoseName() << ": "
-                   << frame.fid();
+    if (!frame.has_lio_pose_3d()) {
+      LOG(WARNING) << "skip frame without lio_pose_3d: " << frame.fid();
       continue;
     }
     if (!frame.has_sensor_to_imu_extrinsic()) {
@@ -186,13 +112,16 @@ int main(int argc, char** argv) {
       LOG(ERROR) << "failed to generate lidar frame data: " << frame.fid();
       continue;
     }
-    PointCloudXYZIRT::Ptr cloud = lidar_frame_data.raw_cloud;
-    LOG(INFO) << "loaded filtered cloud " << cloud->size() << " points from "
-              << frame.cloud_uri();
-    cloud = CropSingleFrameCloud(cloud);
+    if (lidar_frame_data.ground_cloud == nullptr) {
+      LOG(WARNING) << "skip frame without valid ground labels: " << frame.fid();
+      continue;
+    }
 
-    const Pose3D current_pose(*localization_pose);
-    const Eigen::Affine3d current_imu_pose = current_pose.GetAffine3D();
+    const PointCloudXYZIRT::ConstPtr cloud = lidar_frame_data.ground_cloud;
+    LOG(INFO) << "loaded " << cloud->size() << " ground points from "
+              << frame.cloud_uri();
+
+    const Eigen::Affine3d& current_imu_pose = lidar_frame_data.pose_utm;
     if (split_by_distance && has_last_imu_pose && loaded_frame_count > 0) {
       const double frame_distance =
           PoseDistance2D(last_imu_pose, current_imu_pose);
@@ -231,16 +160,13 @@ int main(int argc, char** argv) {
     pcl::transformPointCloud(*cloud, *transformed,
                              lidar_to_first_imu.cast<float>());
 
-    PointCloudXYZIRT::Ptr downsampled =
-        DownsampleCloud(transformed, FLAGS_frame_leaf_size);
-    *stitched_cloud += *downsampled;
+    *stitched_cloud += *transformed;
     ++loaded_frame_count;
     last_imu_pose = current_imu_pose;
     has_last_imu_pose = true;
 
-    LOG(INFO) << "frame " << frame.fid() << " filtered: " << cloud->size()
+    LOG(INFO) << "frame " << frame.fid() << " input: " << cloud->size()
               << " transformed: " << transformed->size()
-              << " downsampled: " << downsampled->size()
               << " stitched total: " << stitched_cloud->size();
   }
 
