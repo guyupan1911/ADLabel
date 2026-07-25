@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include <opencv2/imgproc.hpp>
+
 namespace adlabel {
 namespace mapping {
 namespace {
@@ -16,27 +18,33 @@ uint16_t GetRescaledAltitude(float alt, float min_alt, float max_alt) {
 }
 
 unsigned char ApplyIntensityMapping(
-    unsigned char intensity, LidarLosslessMapNode::IntensityMappingMode mode) {
+    float intensity, LidarLosslessMapNode::IntensityMappingMode mode) {
   if (mode == LidarLosslessMapNode::IntensityMappingMode::kPassThrough) {
-    return intensity;
+    return static_cast<unsigned char>(intensity);
   }
-  if (intensity == 0) return 0;
-  const float val = std::log2(static_cast<float>(intensity)) * 32.0f;
+  if (intensity <= 0.0f) return 0;
+  const float val = std::log2(intensity) * 32.0f;
   return static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, val)));
 }
 
 }  // namespace
 
-void LidarLosslessMapNode::Init(
-    const GridFrame& frame, IntensityMappingMode intensity_mapping,
-    IntensityAggregationMode intensity_aggregation) {
+void LidarLosslessMapNode::Init(const GridFrame& frame,
+                                IntensityMappingMode intensity_mapping,
+                                IntensityAggregationMode intensity_aggregation,
+                                MatrixType matrix_type) {
   frame_ = frame;
   intensity_mapping_ = intensity_mapping;
   intensity_aggregation_ = intensity_aggregation;
-  matrix_.Init(frame.rows, frame.cols);
+  if (matrix_type == MatrixType::kDense) {
+    matrix_ = std::make_unique<DenseLosslessMapMatrix>();
+  } else {
+    matrix_ = std::make_unique<SparseLosslessMapMatrix>();
+  }
+  matrix_->Init(frame.rows, frame.cols);
 }
 
-void LidarLosslessMapNode::Reset() { matrix_.Reset(); }
+void LidarLosslessMapNode::Reset() { matrix_->Reset(); }
 
 void LidarLosslessMapNode::SetLeftTopCorner(double x, double y) {
   frame_.top_left_corner = {x, y};
@@ -50,13 +58,11 @@ bool LidarLosslessMapNode::SetValue(const Eigen::Vector3d& world_xyz,
     return false;
   }
 
-  const unsigned char mapped_intensity =
-      ApplyIntensityMapping(intensity, intensity_mapping_);
-  LosslessMapCell& cell = matrix_.GetOrCreate(row, col);
+  LosslessMapCell& cell = matrix_->GetOrCreate(row, col);
   if (intensity_aggregation_ == IntensityAggregationMode::kMean) {
-    cell.AddSampleMean(static_cast<float>(world_xyz.z()), mapped_intensity);
+    cell.AddSampleMean(static_cast<float>(world_xyz.z()), intensity);
   } else {
-    cell.AddSampleMax(static_cast<float>(world_xyz.z()), mapped_intensity);
+    cell.AddSampleMax(static_cast<float>(world_xyz.z()), intensity);
   }
   return true;
 }
@@ -65,12 +71,16 @@ void LidarLosslessMapNode::GetIntensityImage(cv::Mat* image,
                                              size_t min_samples) const {
   *image = cv::Mat::zeros(static_cast<int>(frame_.rows),
                           static_cast<int>(frame_.cols), CV_8UC1);
-  matrix_.ForEachOccupied(
+  matrix_->ForEachOccupied(
       [&](unsigned int r, unsigned int c, const LosslessMapCell& cell) {
         if (cell.GetCount() < min_samples) return;
         image->at<unsigned char>(static_cast<int>(r), static_cast<int>(c)) =
-            cell.GetValue();
+            ApplyIntensityMapping(cell.intensity, intensity_mapping_);
       });
+
+  cv::normalize(*image, *image, 0, 255, cv::NORM_MINMAX);
+  const cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
+  clahe->apply(*image, *image);
 }
 
 void LidarLosslessMapNode::GetAltitudeImage(cv::Mat* image,
@@ -78,8 +88,8 @@ void LidarLosslessMapNode::GetAltitudeImage(cv::Mat* image,
   *image =
       cv::Mat(static_cast<int>(frame_.rows), static_cast<int>(frame_.cols),
               CV_32FC1, cv::Scalar(std::numeric_limits<float>::quiet_NaN()));
-  matrix_.ForEachOccupied([&](unsigned int r, unsigned int c,
-                              const LosslessMapCell& cell) {
+  matrix_->ForEachOccupied([&](unsigned int r, unsigned int c,
+                               const LosslessMapCell& cell) {
     if (cell.GetCount() < min_samples) return;
     image->at<float>(static_cast<int>(r), static_cast<int>(c)) = cell.GetAlt();
   });
@@ -91,7 +101,7 @@ void LidarLosslessMapNode::GetRescaledAltitudeImage(float min_altitude,
                                                     size_t min_samples) const {
   *image = cv::Mat(static_cast<int>(frame_.rows), static_cast<int>(frame_.cols),
                    CV_16UC1, cv::Scalar(kEmptyAltitudeValue));
-  matrix_.ForEachOccupied(
+  matrix_->ForEachOccupied(
       [&](unsigned int r, unsigned int c, const LosslessMapCell& cell) {
         if (cell.GetCount() < min_samples) return;
         image->at<uint16_t>(static_cast<int>(r), static_cast<int>(c)) =
@@ -103,7 +113,7 @@ double LidarLosslessMapNode::GetOccupancyRatio() const {
   const size_t total = static_cast<size_t>(frame_.rows) * frame_.cols;
   if (total == 0) return 0.0;
   size_t occupied = 0;
-  matrix_.ForEachOccupied(
+  matrix_->ForEachOccupied(
       [&](unsigned int, unsigned int, const LosslessMapCell&) { ++occupied; });
   return static_cast<double>(occupied) / static_cast<double>(total);
 }

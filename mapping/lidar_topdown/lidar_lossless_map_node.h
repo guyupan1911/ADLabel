@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <Eigen/Core>
@@ -21,6 +22,7 @@ class LidarLosslessMapNode {
  public:
   enum class IntensityMappingMode { kLogarithmic, kPassThrough };
   enum class IntensityAggregationMode { kMax, kMean };
+  enum class MatrixType { kDense, kSparse };
 
   LidarLosslessMapNode() = default;
   ~LidarLosslessMapNode() = default;
@@ -29,7 +31,8 @@ class LidarLosslessMapNode {
             IntensityMappingMode intensity_mapping =
                 IntensityMappingMode::kLogarithmic,
             IntensityAggregationMode intensity_aggregation =
-                IntensityAggregationMode::kMax);
+                IntensityAggregationMode::kMax,
+            MatrixType matrix_type = MatrixType::kSparse);
   void Reset();
 
   const GridFrame& GetFrame() const { return frame_; }
@@ -47,15 +50,16 @@ class LidarLosslessMapNode {
 
   double GetOccupancyRatio() const;
 
-  const LosslessMapMatrix& GetMatrix() const { return matrix_; }
-  LosslessMapMatrix& GetMatrix() { return matrix_; }
+  const LosslessMapMatrix& GetMatrix() const { return *matrix_; }
+  LosslessMapMatrix& GetMatrix() { return *matrix_; }
 
  private:
   GridFrame frame_;
   IntensityMappingMode intensity_mapping_ = IntensityMappingMode::kLogarithmic;
   IntensityAggregationMode intensity_aggregation_ =
       IntensityAggregationMode::kMax;
-  DenseLosslessMapMatrix matrix_;
+  std::unique_ptr<LosslessMapMatrix> matrix_ =
+      std::make_unique<SparseLosslessMapMatrix>();
 };
 
 }  // namespace mapping

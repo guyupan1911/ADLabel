@@ -6,6 +6,10 @@ Main class:
 
 - `LidarLosslessMapNode`: grid accumulator for intensity and altitude statistics.
 
+The grid storage backend defaults to `SparseLosslessMapMatrix`. Pass
+`LidarLosslessMapNode::MatrixType::kDense` as the last `Init()` argument when a
+dense matrix is preferred.
+
 Coordinate convention for ADLabel:
 
 ```text

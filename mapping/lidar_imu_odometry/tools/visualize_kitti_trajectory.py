@@ -128,11 +128,8 @@ def plot_trajectories(
     import matplotlib.pyplot as plt
 
     odometry_positions = odometry_poses[:, :3, 3]
-    ground_truth_positions = ground_truth_poses[:, :3, 3]
     odometry_distances = accumulated_distances(odometry_positions)
-    ground_truth_distances = accumulated_distances(ground_truth_positions)
     odometry_length = odometry_distances[-1]
-    ate_rmse, rpe_translation_rmse, rpe_rotation_rmse_degrees = errors
 
     figure, (trajectory_axis, height_axis) = plt.subplots(
         2, 1, figsize=(12, 14), gridspec_kw={"height_ratios": [3, 1]}
@@ -143,13 +140,6 @@ def plot_trajectories(
         color="#1f77b4",
         linewidth=1.2,
         label="LiDAR odometry",
-    )
-    trajectory_axis.plot(
-        ground_truth_positions[:, 0],
-        ground_truth_positions[:, 1],
-        color="#2ca02c",
-        linewidth=1.2,
-        label="Ground truth",
     )
     trajectory_axis.scatter(
         odometry_positions[0, 0],
@@ -167,14 +157,26 @@ def plot_trajectories(
         s=70,
         label="Odometry end",
     )
-    trajectory_axis.scatter(
-        ground_truth_positions[-1, 0],
-        ground_truth_positions[-1, 1],
-        color="#2ca02c",
-        marker="x",
-        s=70,
-        label="Ground truth end",
-    )
+    if ground_truth_poses is not None:
+        ground_truth_positions = ground_truth_poses[:, :3, 3]
+        ground_truth_distances = accumulated_distances(
+            ground_truth_positions
+        )
+        trajectory_axis.plot(
+            ground_truth_positions[:, 0],
+            ground_truth_positions[:, 1],
+            color="#2ca02c",
+            linewidth=1.2,
+            label="Ground truth",
+        )
+        trajectory_axis.scatter(
+            ground_truth_positions[-1, 0],
+            ground_truth_positions[-1, 1],
+            color="#2ca02c",
+            marker="x",
+            s=70,
+            label="Ground truth end",
+        )
 
     trajectory_axis.set_title(
         f"KITTI LiDAR odometry trajectory\n"
@@ -186,18 +188,24 @@ def plot_trajectories(
     trajectory_axis.axis("equal")
     trajectory_axis.grid(True, linewidth=0.4, alpha=0.6)
     trajectory_axis.legend()
-    trajectory_axis.text(
-        0.02,
-        0.98,
-        f"ATE RMSE: {ate_rmse:.3f} m\n"
-        f"RPE translation RMSE (1 frame): "
-        f"{rpe_translation_rmse:.4f} m\n"
-        f"RPE rotation RMSE (1 frame): "
-        f"{rpe_rotation_rmse_degrees:.4f} deg",
-        transform=trajectory_axis.transAxes,
-        verticalalignment="top",
-        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
-    )
+    if errors is not None:
+        ate_rmse, rpe_translation_rmse, rpe_rotation_rmse_degrees = errors
+        trajectory_axis.text(
+            0.02,
+            0.98,
+            f"ATE RMSE: {ate_rmse:.3f} m\n"
+            f"RPE translation RMSE (1 frame): "
+            f"{rpe_translation_rmse:.4f} m\n"
+            f"RPE rotation RMSE (1 frame): "
+            f"{rpe_rotation_rmse_degrees:.4f} deg",
+            transform=trajectory_axis.transAxes,
+            verticalalignment="top",
+            bbox={
+                "boxstyle": "round",
+                "facecolor": "white",
+                "alpha": 0.85,
+            },
+        )
 
     height_axis.plot(
         odometry_distances,
@@ -206,13 +214,14 @@ def plot_trajectories(
         linewidth=1.0,
         label="LiDAR odometry",
     )
-    height_axis.plot(
-        ground_truth_distances,
-        ground_truth_positions[:, 2],
-        color="#2ca02c",
-        linewidth=1.0,
-        label="Ground truth",
-    )
+    if ground_truth_poses is not None:
+        height_axis.plot(
+            ground_truth_distances,
+            ground_truth_positions[:, 2],
+            color="#2ca02c",
+            linewidth=1.0,
+            label="Ground truth",
+        )
     height_axis.set_title("LiDAR z profile")
     height_axis.set_xlabel("Accumulated distance (m)")
     height_axis.set_ylabel("LiDAR z (m)")
@@ -226,7 +235,6 @@ def plot_trajectories(
 
 
 def parse_arguments():
-    default_ground_truth_path = Path("data/kitti/00.txt")
     parser = argparse.ArgumentParser(
         description="Visualize and evaluate a KITTI LiDAR trajectory."
     )
@@ -239,11 +247,7 @@ def parse_arguments():
     parser.add_argument(
         "--ground_truth_path",
         type=Path,
-        default=default_ground_truth_path,
-        help=(
-            "KITTI camera ground-truth file "
-            f"(default: {default_ground_truth_path})"
-        ),
+        help="Optional KITTI camera ground-truth file.",
     )
     parser.add_argument(
         "--output_dir",
@@ -257,18 +261,24 @@ def parse_arguments():
 def main():
     args = parse_arguments()
     trajectory_path = args.trajectory_path.expanduser().resolve()
-    ground_truth_path = args.ground_truth_path.expanduser().resolve()
     output_path = args.output_dir.expanduser().resolve() / "trajectory.png"
 
     if not trajectory_path.is_file():
         raise FileNotFoundError(
             f"trajectory file does not exist: {trajectory_path}"
         )
+    odometry_poses = normalize_poses(load_poses(trajectory_path))
+    if args.ground_truth_path is None:
+        plot_trajectories(odometry_poses, None, None, output_path)
+        print(f"Loaded {len(odometry_poses)} odometry poses")
+        print(f"Saved trajectory image: {output_path}")
+        return
+
+    ground_truth_path = args.ground_truth_path.expanduser().resolve()
     if not ground_truth_path.is_file():
         raise FileNotFoundError(
             f"ground-truth file does not exist: {ground_truth_path}"
         )
-
     calibration_path = (
         ground_truth_path.parent / ground_truth_path.stem / "calib.txt"
     )
@@ -277,7 +287,6 @@ def main():
             f"calibration file does not exist: {calibration_path}"
         )
 
-    odometry_poses = normalize_poses(load_poses(trajectory_path))
     ground_truth_camera_poses = load_poses(ground_truth_path)
     lidar_to_camera = load_lidar_to_camera(calibration_path)
     ground_truth_lidar_poses = normalize_poses(
