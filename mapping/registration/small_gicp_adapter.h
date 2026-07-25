@@ -44,5 +44,14 @@ SmallGicpRegistrationResult AlignGicp(
     const SmallGicpRegistrationOptions& options =
         SmallGicpRegistrationOptions());
 
+// Aligns source to an incremental voxel map. Source must have covariances.
+SmallGicpRegistrationResult AlignGicp(
+    const SmallGicpIncrementalVoxelMap& target_map,
+    const SmallGicpPointCloud& source,
+    const Eigen::Isometry3d& initial_target_source =
+        Eigen::Isometry3d::Identity(),
+    const SmallGicpRegistrationOptions& options =
+        SmallGicpRegistrationOptions());
+
 }  // namespace mapping
 }  // namespace adlabel

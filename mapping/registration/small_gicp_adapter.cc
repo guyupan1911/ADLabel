@@ -89,5 +89,35 @@ SmallGicpRegistrationResult AlignGicp(
   return result;
 }
 
+SmallGicpRegistrationResult AlignGicp(
+    const SmallGicpIncrementalVoxelMap& target_map,
+    const SmallGicpPointCloud& source,
+    const Eigen::Isometry3d& initial_target_source,
+    const SmallGicpRegistrationOptions& options) {
+  small_gicp::Registration<small_gicp::GICPFactor,
+                           small_gicp::ParallelReductionTBB>
+      registration;
+  registration.rejector.max_dist_sq =
+      options.max_correspondence_distance * options.max_correspondence_distance;
+  registration.criteria.rotation_eps = options.rotation_epsilon;
+  registration.criteria.translation_eps = options.translation_epsilon;
+  registration.optimizer.max_iterations = options.max_iterations;
+  registration.optimizer.verbose = options.verbose;
+
+  const small_gicp::RegistrationResult internal_result =
+      registration.align(target_map, source, target_map, initial_target_source);
+
+  SmallGicpRegistrationResult result;
+  result.T_target_source = internal_result.T_target_source;
+  result.converged = internal_result.converged;
+  result.iterations = internal_result.iterations;
+  result.error = internal_result.error;
+  if (!source.empty()) {
+    result.inlier_ratio = static_cast<double>(internal_result.num_inliers) /
+                          static_cast<double>(source.size());
+  }
+  return result;
+}
+
 }  // namespace mapping
 }  // namespace adlabel

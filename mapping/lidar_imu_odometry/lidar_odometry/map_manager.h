@@ -14,10 +14,8 @@ class MapManager {
                                  SmallGicpRegistrationResult& align_result);
 
  private:
-  SmallGicpPointCloudPtr reference_cloud_ = nullptr;
-  SmallGicpKdTreePtr reference_cloud_kdtree_ = nullptr;
-
-  Eigen::Affine3d T_world_reference_ = Eigen::Affine3d::Identity();
+  SmallGicpIncrementalVoxelMapPtr voxel_map_ = nullptr;
+  Eigen::Affine3d T_world_lidar_ = Eigen::Affine3d::Identity();
 };
 
 }  // namespace mapping

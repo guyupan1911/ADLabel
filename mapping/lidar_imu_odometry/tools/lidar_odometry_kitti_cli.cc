@@ -1,24 +1,25 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <iomanip>
 #include <string>
 #include <system_error>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <Eigen/Core>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <pcl/filters/uniform_sampling.h>
 #include <pcl/io/pcd_io.h>
 
 #include "mapping/lidar_imu_odometry/lidar_odometry/map_manager.h"
 
 DEFINE_string(sequence_dir, "", "Path to a KITTI odometry sequence directory.");
-DEFINE_string(output_dir, "", "Directory for the trajectory and PCD map.");
+DEFINE_string(output_dir, "", "Directory for output artifacts.");
+DEFINE_bool(stitch_map, false, "Stitch and save the point cloud map.");
 DEFINE_double(map_leaf_size, 0.3, "Map voxel-grid leaf size in meters.");
 DEFINE_int32(max_frames, 0,
              "Maximum number of frames to process; 0 means all frames.");
@@ -27,6 +28,7 @@ namespace {
 
 constexpr char kTrajectoryFilename[] = "trajectory.txt";
 constexpr char kMapFilename[] = "map.pcd";
+constexpr std::size_t kMapDownsampleInterval = 50;
 
 struct KittiPoint {
   float x;
@@ -34,38 +36,6 @@ struct KittiPoint {
   float z;
   float intensity;
 };
-
-struct VoxelIndex {
-  std::int64_t x;
-  std::int64_t y;
-  std::int64_t z;
-
-  bool operator==(const VoxelIndex& other) const {
-    return x == other.x && y == other.y && z == other.z;
-  }
-};
-
-struct VoxelIndexHash {
-  std::size_t operator()(const VoxelIndex& index) const {
-    std::size_t seed = std::hash<std::int64_t>{}(index.x);
-    seed ^= std::hash<std::int64_t>{}(index.y) + 0x9e3779b9 + (seed << 6) +
-            (seed >> 2);
-    seed ^= std::hash<std::int64_t>{}(index.z) + 0x9e3779b9 + (seed << 6) +
-            (seed >> 2);
-    return seed;
-  }
-};
-
-struct VoxelAccumulator {
-  double x_sum = 0.0;
-  double y_sum = 0.0;
-  double z_sum = 0.0;
-  double intensity_sum = 0.0;
-  std::uint64_t count = 0;
-};
-
-using VoxelMap =
-    std::unordered_map<VoxelIndex, VoxelAccumulator, VoxelIndexHash>;
 
 std::vector<std::filesystem::path> ListKittiFrames(
     const std::filesystem::path& sequence_dir) {
@@ -139,48 +109,33 @@ void WriteKittiPose(const Eigen::Affine3d& pose, std::ostream* output) {
 }
 
 void AddCloudToMap(const adlabel::mapping::PointCloudXYZIRT& cloud,
-                   const Eigen::Affine3d& T_world_lidar, double leaf_size,
-                   VoxelMap* voxel_map) {
-  CHECK(voxel_map != nullptr);
+                   const Eigen::Affine3d& T_world_lidar,
+                   adlabel::mapping::PointCloudXYZIRT* map_cloud) {
+  CHECK(map_cloud != nullptr);
+  map_cloud->reserve(map_cloud->size() + cloud.size());
   for (const auto& point : cloud) {
     const Eigen::Vector3d world_point =
         T_world_lidar * Eigen::Vector3d(static_cast<double>(point.x),
                                         static_cast<double>(point.y),
                                         static_cast<double>(point.z));
-    const VoxelIndex index{
-        static_cast<std::int64_t>(std::floor(world_point.x() / leaf_size)),
-        static_cast<std::int64_t>(std::floor(world_point.y() / leaf_size)),
-        static_cast<std::int64_t>(std::floor(world_point.z() / leaf_size))};
 
-    VoxelAccumulator& voxel = (*voxel_map)[index];
-    voxel.x_sum += world_point.x();
-    voxel.y_sum += world_point.y();
-    voxel.z_sum += world_point.z();
-    voxel.intensity_sum += point.intensity;
-    ++voxel.count;
+    adlabel::mapping::PointXYZIRT transformed_point = point;
+    transformed_point.x = static_cast<float>(world_point.x());
+    transformed_point.y = static_cast<float>(world_point.y());
+    transformed_point.z = static_cast<float>(world_point.z());
+    map_cloud->push_back(transformed_point);
   }
 }
 
-adlabel::mapping::PointCloudXYZIRT BuildMapCloud(const VoxelMap& voxel_map) {
-  adlabel::mapping::PointCloudXYZIRT map_cloud;
-  map_cloud.reserve(voxel_map.size());
-  for (const auto& entry : voxel_map) {
-    const VoxelAccumulator& voxel = entry.second;
-    const double inverse_count = 1.0 / static_cast<double>(voxel.count);
-
-    adlabel::mapping::PointXYZIRT point{};
-    point.x = static_cast<float>(voxel.x_sum * inverse_count);
-    point.y = static_cast<float>(voxel.y_sum * inverse_count);
-    point.z = static_cast<float>(voxel.z_sum * inverse_count);
-    point.intensity = static_cast<float>(voxel.intensity_sum * inverse_count);
-    point.ring = 0;
-    point.timestamp = 0.0;
-    map_cloud.push_back(point);
-  }
-  map_cloud.width = map_cloud.size();
-  map_cloud.height = 1;
-  map_cloud.is_dense = true;
-  return map_cloud;
+void DownsampleMap(double radius,
+                   adlabel::mapping::PointCloudXYZIRT* map_cloud) {
+  CHECK(map_cloud != nullptr);
+  adlabel::mapping::PointCloudXYZIRT::Ptr input(
+      new adlabel::mapping::PointCloudXYZIRT(std::move(*map_cloud)));
+  pcl::UniformSampling<adlabel::mapping::PointXYZIRT> uniform_sampling;
+  uniform_sampling.setInputCloud(input);
+  uniform_sampling.setRadiusSearch(radius);
+  uniform_sampling.filter(*map_cloud);
 }
 
 }  // namespace
@@ -191,8 +146,10 @@ int main(int argc, char** argv) {
 
   CHECK(!FLAGS_sequence_dir.empty()) << "--sequence_dir is required";
   CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
-  CHECK(std::isfinite(FLAGS_map_leaf_size) && FLAGS_map_leaf_size > 0.0)
-      << "--map_leaf_size must be finite and positive";
+  if (FLAGS_stitch_map) {
+    CHECK(std::isfinite(FLAGS_map_leaf_size) && FLAGS_map_leaf_size > 0.0)
+        << "--map_leaf_size must be finite and positive";
+  }
   CHECK_GE(FLAGS_max_frames, 0) << "--max_frames must not be negative";
 
   const std::vector<std::filesystem::path> frame_paths =
@@ -212,15 +169,34 @@ int main(int argc, char** argv) {
   output << std::fixed << std::setprecision(9);
 
   adlabel::mapping::MapManager map_manager;
-  VoxelMap voxel_map;
+  adlabel::mapping::PointCloudXYZIRT map_cloud;
+  std::chrono::steady_clock::duration odometry_duration{};
+  std::chrono::steady_clock::duration stitch_map_duration{};
   for (std::size_t index = 0; index < frame_paths.size(); ++index) {
     const adlabel::mapping::PointCloudXYZIRT cloud =
         ReadKittiCloud(frame_paths[index]);
     adlabel::mapping::SmallGicpRegistrationResult result;
+
+    const auto odometry_start = std::chrono::steady_clock::now();
     const Eigen::Affine3d T_world_lidar =
         map_manager.AlignScanToMap(cloud, result);
+    odometry_duration += std::chrono::steady_clock::now() - odometry_start;
     WriteKittiPose(T_world_lidar, &output);
-    AddCloudToMap(cloud, T_world_lidar, FLAGS_map_leaf_size, &voxel_map);
+
+    if (FLAGS_stitch_map) {
+      const auto stitch_map_start = std::chrono::steady_clock::now();
+      AddCloudToMap(cloud, T_world_lidar, &map_cloud);
+
+      if ((index + 1) % kMapDownsampleInterval == 0 ||
+          index + 1 == frame_paths.size()) {
+        const std::size_t input_points = map_cloud.size();
+        DownsampleMap(FLAGS_map_leaf_size, &map_cloud);
+        LOG(INFO) << "Downsampled map after frame " << index + 1 << ": "
+                  << input_points << " -> " << map_cloud.size() << " points";
+      }
+      stitch_map_duration +=
+          std::chrono::steady_clock::now() - stitch_map_start;
+    }
 
     if (index == 0) {
       LOG(INFO) << "Frame 0 initialized the odometry reference";
@@ -237,10 +213,24 @@ int main(int argc, char** argv) {
   LOG(INFO) << "Wrote " << frame_paths.size()
             << " poses to: " << trajectory_path;
 
-  adlabel::mapping::PointCloudXYZIRT map_cloud = BuildMapCloud(voxel_map);
-  CHECK_EQ(pcl::io::savePCDFileBinary(map_path.string(), map_cloud), 0)
-      << "Failed to save PCD map: " << map_path;
-  LOG(INFO) << "Wrote " << map_cloud.size() << " map points at "
-            << FLAGS_map_leaf_size << " m resolution to: " << map_path;
+  if (FLAGS_stitch_map) {
+    const auto stitch_map_start = std::chrono::steady_clock::now();
+    CHECK_EQ(pcl::io::savePCDFileBinary(map_path.string(), map_cloud), 0)
+        << "Failed to save PCD map: " << map_path;
+    stitch_map_duration += std::chrono::steady_clock::now() - stitch_map_start;
+    LOG(INFO) << "Wrote " << map_cloud.size() << " map points at "
+              << FLAGS_map_leaf_size << " m resolution to: " << map_path;
+  }
+
+  const double odometry_ms =
+      std::chrono::duration<double, std::milli>(odometry_duration).count();
+  LOG(INFO) << "LiDAR odometry took " << odometry_ms << " ms, "
+            << odometry_ms / frame_paths.size() << " ms/frame";
+  if (FLAGS_stitch_map) {
+    const double stitch_map_ms =
+        std::chrono::duration<double, std::milli>(stitch_map_duration).count();
+    LOG(INFO) << "Map stitching took " << stitch_map_ms << " ms, "
+              << stitch_map_ms / frame_paths.size() << " ms/frame";
+  }
   return 0;
 }
