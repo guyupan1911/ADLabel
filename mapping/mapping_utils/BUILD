@@ -9,7 +9,9 @@ cc_library(
   ],
   deps = [
     "//mapping/common:pcl_types",
+    "//mapping/protos:camera_calibration_cc_proto",
     "@system_libs//:eigen",
+    "@system_libs//:opencv",
   ],
 )
 

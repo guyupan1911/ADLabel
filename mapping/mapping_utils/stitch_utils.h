@@ -13,5 +13,9 @@ bool GenerateLidarFrameData(
     const Frame& frame, FrameData* lidar_frame_data,
     const std::shared_ptr<LocalDataReader>& local_data_reader);
 
+bool GenerateCameraFrameData(
+    const Frame& frame, FrameData* camera_frame_data,
+    const std::shared_ptr<LocalDataReader>& local_data_reader);
+
 }  // namespace mapping
 }  // namespace adlabel

@@ -19,6 +19,7 @@
 #include "mapping/common/pcl_types.h"
 #include "mapping/common/pose3d.h"
 #include "mapping/mapping_utils/simple_pose3d_interpolator.h"
+#include "mapping/mapping_utils/stitch_utils.h"
 #include "mapping/mapping_utils/timestamp_aligner.h"
 #include "mapping/protos/frame.pb.h"
 
@@ -30,8 +31,6 @@ DEFINE_string(data_root, "", "root directory for sensor data");
 DEFINE_string(output_dir, "", "directory to save projected images");
 DEFINE_int64(max_time_diff_ms, 10,
              "maximum lidar-camera timestamp difference in milliseconds");
-DEFINE_double(max_render_depth_m, 80.0,
-              "maximum depth used by color rendering");
 DEFINE_int32(point_radius, 1, "projected point radius in pixels");
 DEFINE_uint64(max_frames, 0,
               "maximum matched frame pairs to process, 0 means all");
@@ -39,13 +38,13 @@ DEFINE_string(
     depth_metric, "euclidean",
     "depth metric for color mapping: 'z_axis' (camera z coordinate) or "
     "'euclidean' (straight-line distance to camera)");
-DEFINE_bool(enable_motion_compensation, true,
-            "enable motion compensation using LIO pose interpolation for "
-            "timestamp differences");
 
 namespace adlabel {
 namespace mapping {
 namespace {
+
+constexpr double kMaxRenderDepthM = 80.0;
+constexpr double kMaxRenderIntensity = 255.0;
 
 bool IsProcessableLidarFrame(const Frame& frame) {
   if (!frame.has_cloud_uri() || frame.cloud_uri().empty()) {
@@ -55,6 +54,10 @@ bool IsProcessableLidarFrame(const Frame& frame) {
   if (!frame.has_sensor_to_imu_extrinsic()) {
     LOG(WARNING) << "skip lidar frame without sensor_to_imu_extrinsic: "
                  << frame.fid();
+    return false;
+  }
+  if (!frame.has_refined_pose_3d()) {
+    LOG(WARNING) << "skip lidar frame without refined_pose_3d: " << frame.fid();
     return false;
   }
   return true;
@@ -89,7 +92,7 @@ double Clamp(double value, double min_value, double max_value) {
 }
 
 cv::Scalar DepthColor(double depth_m) {
-  const double t = Clamp(depth_m / FLAGS_max_render_depth_m, 0.0, 1.0);
+  const double t = Clamp(depth_m / kMaxRenderDepthM, 0.0, 1.0);
   // Near points are red, far points are blue.
   const double hue = 240.0 * t;
   const double c = 1.0;
@@ -112,6 +115,11 @@ cv::Scalar DepthColor(double depth_m) {
     b = c;
   }
   return cv::Scalar(b * 255.0, g * 255.0, r * 255.0);
+}
+
+cv::Scalar IntensityColor(double intensity) {
+  const double t = Clamp(intensity / kMaxRenderIntensity, 0.0, 1.0);
+  return DepthColor((1.0 - t) * kMaxRenderDepthM);
 }
 
 void ConvertToBgrIfNeeded(cv::Mat* image) {
@@ -150,63 +158,56 @@ std::string MakeOutputFileName(const Frame& lidar_frame,
   return stream.str();
 }
 
-SimplePose3DInterpolator BuildLioPoseInterpolator(
+SimplePose3DInterpolator BuildPoseEcefInterpolator(
     const std::vector<Frame>& lidar_frames) {
   SimplePose3DInterpolator interpolator;
   size_t valid_pose_count = 0;
 
   for (const auto& frame : lidar_frames) {
-    if (!frame.has_lio_pose_3d()) {
+    if (!frame.has_refined_pose_3d()) {
       continue;
     }
-    const Pose3D lio_pose(frame.lio_pose_3d());
-    interpolator.InsertTimestampedPose(frame.timestamp_ns(), lio_pose);
+    const Pose3D pose_ecef(frame.refined_pose_3d());
+    interpolator.InsertTimestampedPose(frame.timestamp_ns(), pose_ecef);
     ++valid_pose_count;
   }
 
-  LOG(INFO) << "built LIO pose interpolator with " << valid_pose_count
+  LOG(INFO) << "built ECEF pose interpolator with " << valid_pose_count
             << " poses from " << lidar_frames.size() << " lidar frames";
   return interpolator;
 }
 
-bool ComputeMotionCompensation(
-    const SimplePose3DInterpolator& lio_pose_interpolator,
-    int64_t lidar_timestamp_ns, int64_t camera_timestamp_ns,
-    Eigen::Affine3d* T_compensation) {
-  CHECK(T_compensation != nullptr);
+bool InterpolateCameraPoseEcef(
+    const SimplePose3DInterpolator& pose_ecef_interpolator,
+    int64_t camera_timestamp_ns, FrameData* camera_frame_data) {
+  CHECK(camera_frame_data != nullptr);
 
-  if (lidar_timestamp_ns == camera_timestamp_ns) {
-    *T_compensation = Eigen::Affine3d::Identity();
-    return true;
-  }
-
-  Pose3D lio_pose_at_lidar;
-  Pose3D lio_pose_at_camera;
-
-  if (!lio_pose_interpolator.GetTimestampedPose(lidar_timestamp_ns,
-                                                &lio_pose_at_lidar, false)) {
-    LOG(WARNING) << "failed to interpolate LIO pose at lidar timestamp "
-                 << lidar_timestamp_ns;
-    return false;
-  }
-
-  if (!lio_pose_interpolator.GetTimestampedPose(camera_timestamp_ns,
-                                                &lio_pose_at_camera, false)) {
-    LOG(WARNING) << "failed to interpolate LIO pose at camera timestamp "
+  Pose3D camera_pose_ecef;
+  if (!pose_ecef_interpolator.GetTimestampedPose(camera_timestamp_ns,
+                                                 &camera_pose_ecef, false)) {
+    LOG(WARNING) << "failed to interpolate ECEF pose at camera timestamp "
                  << camera_timestamp_ns;
     return false;
   }
 
-  *T_compensation = lio_pose_at_camera.GetAffine3D().inverse() *
-                    lio_pose_at_lidar.GetAffine3D();
-
+  camera_frame_data->pose_ecef = camera_pose_ecef.GetAffine3D();
   return true;
 }
 
-size_t ProjectLidarToImage(const PointCloudXYZIRT& cloud,
-                           const Eigen::Affine3d& T_lidar_to_camera,
-                           const BaseCamera& camera, cv::Mat* image) {
-  CHECK(image != nullptr);
+Eigen::Affine3d ComputeLidarToCameraTransform(
+    const FrameData& lidar_frame_data, const FrameData& camera_frame_data) {
+  return camera_frame_data.transform_from_sensor_to_imu.inverse() *
+         camera_frame_data.pose_ecef.inverse() * lidar_frame_data.pose_ecef *
+         lidar_frame_data.transform_from_sensor_to_imu;
+}
+
+size_t ProjectLidarToImages(const FrameData::Cloud& cloud,
+                            const Eigen::Affine3d& T_lidar_to_camera,
+                            const BaseCamera& camera, cv::Mat* depth_image,
+                            cv::Mat* intensity_image) {
+  CHECK(depth_image != nullptr);
+  CHECK(intensity_image != nullptr);
+  CHECK_EQ(depth_image->size(), intensity_image->size());
 
   size_t projected_count = 0;
   for (const auto& point : cloud.points) {
@@ -227,7 +228,7 @@ size_t ProjectLidarToImage(const PointCloudXYZIRT& cloud,
 
     const int u = static_cast<int>(std::lround(pixel.x()));
     const int v = static_cast<int>(std::lround(pixel.y()));
-    if (u < 0 || u >= image->cols || v < 0 || v >= image->rows) {
+    if (u < 0 || u >= depth_image->cols || v < 0 || v >= depth_image->rows) {
       continue;
     }
 
@@ -236,8 +237,12 @@ size_t ProjectLidarToImage(const PointCloudXYZIRT& cloud,
                              ? point_camera.norm()
                              : point_camera.z();
 
-    cv::circle(*image, cv::Point(u, v), FLAGS_point_radius, DepthColor(depth),
-               -1, cv::LINE_AA);
+    cv::circle(*depth_image, cv::Point(u, v), FLAGS_point_radius,
+               DepthColor(depth), -1, cv::LINE_AA);
+    const double intensity =
+        std::isfinite(point.intensity) ? point.intensity : 0.0;
+    cv::circle(*intensity_image, cv::Point(u, v), FLAGS_point_radius,
+               IntensityColor(intensity), -1, cv::LINE_AA);
     ++projected_count;
   }
   return projected_count;
@@ -250,8 +255,6 @@ int Run() {
   CHECK(!FLAGS_output_dir.empty()) << "--output_dir is required";
   CHECK_GE(FLAGS_max_time_diff_ms, 0)
       << "--max_time_diff_ms must be non-negative";
-  CHECK_GT(FLAGS_max_render_depth_m, 0.0)
-      << "--max_render_depth_m must be positive";
   CHECK_GE(FLAGS_point_radius, 0) << "--point_radius must be non-negative";
 
   const int64_t max_time_diff_ns = FLAGS_max_time_diff_ms * 1000LL * 1000LL;
@@ -270,10 +273,8 @@ int Run() {
   LOG(INFO) << "loaded lidar_frames=" << lidar_frames.size()
             << ", camera_frames=" << camera_frames.size();
 
-  SimplePose3DInterpolator lio_pose_interpolator;
-  if (FLAGS_enable_motion_compensation) {
-    lio_pose_interpolator = BuildLioPoseInterpolator(lidar_frames);
-  }
+  const SimplePose3DInterpolator pose_ecef_interpolator =
+      BuildPoseEcefInterpolator(lidar_frames);
 
   TimestampAligner timestamp_aligner(max_time_diff_ns);
   timestamp_aligner.AddSensorFrameRefs("lidar", lidar_frames);
@@ -283,9 +284,15 @@ int Run() {
   CHECK(!aligned_frames.empty()) << "no lidar-camera frame pairs matched";
 
   const std::filesystem::path output_dir(FLAGS_output_dir);
+  const std::filesystem::path depth_output_dir = output_dir / "depth";
+  const std::filesystem::path intensity_output_dir = output_dir / "intensity";
   std::error_code error;
-  std::filesystem::create_directories(output_dir, error);
-  CHECK(!error) << "failed to create output_dir: " << output_dir.string()
+  std::filesystem::create_directories(depth_output_dir, error);
+  CHECK(!error) << "failed to create output_dir: " << depth_output_dir.string()
+                << ", error: " << error.message();
+  std::filesystem::create_directories(intensity_output_dir, error);
+  CHECK(!error) << "failed to create output_dir: "
+                << intensity_output_dir.string()
                 << ", error: " << error.message();
 
   size_t processed_pairs = 0;
@@ -310,67 +317,73 @@ int Run() {
       continue;
     }
 
-    cv::Mat image;
-    if (!data_reader->ReadImage(camera_frame.camera_image_uri(), &image)) {
+    FrameData lidar_frame_data;
+    if (!GenerateLidarFrameData(lidar_frame, &lidar_frame_data, data_reader)) {
       continue;
     }
-    ConvertToBgrIfNeeded(&image);
+    if (lidar_frame_data.ground_cloud == nullptr ||
+        lidar_frame_data.ground_cloud->empty()) {
+      LOG(WARNING) << "skip lidar frame without ground points: "
+                   << lidar_frame.fid();
+      continue;
+    }
 
-    PointCloudXYZIRT::Ptr cloud(new PointCloudXYZIRT);
-    if (!data_reader->ReadPointCloud(lidar_frame.cloud_uri(), cloud)) {
+    FrameData camera_frame_data;
+    if (!GenerateCameraFrameData(camera_frame, &camera_frame_data,
+                                 data_reader)) {
       continue;
     }
+    ConvertToBgrIfNeeded(&camera_frame_data.camera_image);
 
     std::unique_ptr<BaseCamera> camera =
-        CreateCamera(camera_frame.camera_calibration());
-    if (camera->Width() != static_cast<size_t>(image.cols) ||
-        camera->Height() != static_cast<size_t>(image.rows)) {
+        CreateCamera(camera_frame_data.camera_calibration);
+    if (camera->Width() !=
+            static_cast<size_t>(camera_frame_data.camera_image.cols) ||
+        camera->Height() !=
+            static_cast<size_t>(camera_frame_data.camera_image.rows)) {
       LOG(WARNING) << "camera calibration size " << camera->Width() << "x"
                    << camera->Height() << " differs from image size "
-                   << image.cols << "x" << image.rows;
+                   << camera_frame_data.camera_image.cols << "x"
+                   << camera_frame_data.camera_image.rows;
     }
 
-    const Eigen::Affine3d T_lidar_to_imu =
-        Pose3D(lidar_frame.sensor_to_imu_extrinsic()).GetAffine3D();
-    const Eigen::Affine3d T_camera_to_imu =
-        Pose3D(camera_frame.sensor_to_imu_extrinsic()).GetAffine3D();
-    Eigen::Affine3d T_lidar_to_camera =
-        T_camera_to_imu.inverse() * T_lidar_to_imu;
-
-    Eigen::Affine3d T_motion_compensation = Eigen::Affine3d::Identity();
-    if (FLAGS_enable_motion_compensation &&
-        lidar_frame.timestamp_ns() != camera_frame.timestamp_ns()) {
-      if (ComputeMotionCompensation(
-              lio_pose_interpolator, lidar_frame.timestamp_ns(),
-              camera_frame.timestamp_ns(), &T_motion_compensation)) {
-        T_lidar_to_camera = T_lidar_to_camera * T_motion_compensation;
-
-        const Eigen::Vector3d translation_diff =
-            T_motion_compensation.translation();
-        const Eigen::AngleAxisd rotation_diff(T_motion_compensation.rotation());
-        LOG(INFO)
-            << "motion compensation applied, time_diff_ms="
-            << (camera_frame.timestamp_ns() - lidar_frame.timestamp_ns()) / 1e6
-            << ", translation_norm_m=" << translation_diff.norm()
-            << ", rotation_angle_deg=" << rotation_diff.angle() * 180.0 / M_PI;
-      }
+    if (!InterpolateCameraPoseEcef(pose_ecef_interpolator,
+                                   camera_frame.timestamp_ns(),
+                                   &camera_frame_data)) {
+      continue;
     }
 
+    const Eigen::Affine3d T_lidar_to_camera =
+        ComputeLidarToCameraTransform(lidar_frame_data, camera_frame_data);
+    cv::Mat depth_image = camera_frame_data.camera_image.clone();
+    cv::Mat intensity_image = camera_frame_data.camera_image.clone();
     const size_t projected_count =
-        ProjectLidarToImage(*cloud, T_lidar_to_camera, *camera, &image);
+        ProjectLidarToImages(*lidar_frame_data.ground_cloud, T_lidar_to_camera,
+                             *camera, &depth_image, &intensity_image);
 
-    const std::filesystem::path output_path =
-        output_dir / MakeOutputFileName(lidar_frame, camera_frame, pair_index);
-    if (!cv::imwrite(output_path.string(), image)) {
-      LOG(ERROR) << "failed to save projection image: " << output_path.string();
+    const std::string output_file_name =
+        MakeOutputFileName(lidar_frame, camera_frame, pair_index);
+    const std::filesystem::path depth_output_path =
+        depth_output_dir / output_file_name;
+    const std::filesystem::path intensity_output_path =
+        intensity_output_dir / output_file_name;
+    if (!cv::imwrite(depth_output_path.string(), depth_image)) {
+      LOG(ERROR) << "failed to save depth projection image: "
+                 << depth_output_path.string();
+      continue;
+    }
+    if (!cv::imwrite(intensity_output_path.string(), intensity_image)) {
+      LOG(ERROR) << "failed to save intensity projection image: "
+                 << intensity_output_path.string();
       continue;
     }
 
     ++processed_pairs;
-    ++saved_images;
-    LOG(INFO) << "saved projection image: " << output_path.string()
+    saved_images += 2;
+    LOG(INFO) << "saved projection images: " << output_file_name
               << ", projected_points=" << projected_count << "/"
-              << cloud->points.size() << ", time_diff_ms="
+              << lidar_frame_data.ground_cloud->points.size()
+              << ", time_diff_ms="
               << static_cast<double>(camera_ref_it->second.time_diff_ns) / 1e6;
   }
 

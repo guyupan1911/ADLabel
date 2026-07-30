@@ -62,9 +62,8 @@ bool GenerateLidarFrameData(
   CHECK(local_data_reader != nullptr);
   CHECK(frame.has_sensor_to_imu_extrinsic())
       << "frame has no sensor_to_imu_extrinsic";
-  lidar_frame_data->raw_cloud.reset();
-  lidar_frame_data->ground_cloud.reset();
-  lidar_frame_data->non_ground_cloud.reset();
+  *lidar_frame_data = FrameData();
+  lidar_frame_data->sensor_type = FrameData::SensorType::kLidar;
   // if (!frame.has_refined_pose_3d()) {
   //   LOG(WARNING) << "frame has no refined_pose_3d: " << frame.fid();
   //   return false;
@@ -72,8 +71,12 @@ bool GenerateLidarFrameData(
 
   lidar_frame_data->transform_from_sensor_to_imu =
       Pose3D(frame.sensor_to_imu_extrinsic()).GetAffine3D();
-  lidar_frame_data->pose_ecef = Pose3D(frame.refined_pose_3d()).GetAffine3D();
-  lidar_frame_data->pose_utm = Pose3D(frame.lio_pose_3d()).GetAffine3D();
+  if (frame.has_refined_pose_3d()) {
+    lidar_frame_data->pose_ecef = Pose3D(frame.refined_pose_3d()).GetAffine3D();
+  }
+  if (frame.has_lio_pose_3d()) {
+    lidar_frame_data->pose_utm = Pose3D(frame.lio_pose_3d()).GetAffine3D();
+  }
 
   if (!frame.has_cloud_uri() || frame.cloud_uri().empty()) {
     LOG(WARNING) << "frame has empty cloud_uri: " << frame.fid();
@@ -156,6 +159,44 @@ bool GenerateLidarFrameData(
                  lidar_frame_data->non_ground_cloud->size());
   }
 
+  return true;
+}
+
+bool GenerateCameraFrameData(
+    const Frame& frame, FrameData* camera_frame_data,
+    const std::shared_ptr<LocalDataReader>& local_data_reader) {
+  CHECK(camera_frame_data != nullptr);
+  CHECK(local_data_reader != nullptr);
+  CHECK(frame.has_sensor_to_imu_extrinsic())
+      << "frame has no sensor_to_imu_extrinsic";
+
+  *camera_frame_data = FrameData();
+  camera_frame_data->sensor_type = FrameData::SensorType::kCamera;
+  camera_frame_data->transform_from_sensor_to_imu =
+      Pose3D(frame.sensor_to_imu_extrinsic()).GetAffine3D();
+
+  if (frame.has_lio_pose_3d()) {
+    camera_frame_data->pose_utm = Pose3D(frame.lio_pose_3d()).GetAffine3D();
+  }
+  if (frame.has_refined_pose_3d()) {
+    camera_frame_data->pose_ecef =
+        Pose3D(frame.refined_pose_3d()).GetAffine3D();
+  }
+
+  if (!frame.has_camera_image_uri() || frame.camera_image_uri().empty()) {
+    LOG(WARNING) << "frame has empty camera_image_uri: " << frame.fid();
+    return false;
+  }
+  if (!frame.has_camera_calibration()) {
+    LOG(WARNING) << "frame has no camera_calibration: " << frame.fid();
+    return false;
+  }
+  if (!local_data_reader->ReadImage(frame.camera_image_uri(),
+                                    &camera_frame_data->camera_image)) {
+    return false;
+  }
+
+  camera_frame_data->camera_calibration = frame.camera_calibration();
   return true;
 }
 
