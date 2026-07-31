@@ -54,15 +54,10 @@ Eigen::Affine3d NdtD2dLoopVerifier::RefineFramePairRelativePose(
       Pose3D(frame_pair.to_frame().refined_pose_3d()).GetAffine3D().inverse() *
       Pose3D(frame_pair.from_frame().refined_pose_3d()).GetAffine3D();
 
-  // const pcl::PointCloud<pcl::PointXYZ>::Ptr from_ndt_cloud =
-  //     DownsampleNdtInput(ToPclCloud(from_local_map));
-  // const pcl::PointCloud<pcl::PointXYZ>::Ptr to_ndt_cloud =
-  //     DownsampleNdtInput(ToPclCloud(to_local_map));
-
   const pcl::PointCloud<pcl::PointXYZ>::Ptr from_ndt_cloud =
-      ToPclCloud(from_local_map);
+      DownsampleNdtInput(ToPclCloud(from_local_map));
   const pcl::PointCloud<pcl::PointXYZ>::Ptr to_ndt_cloud =
-      ToPclCloud(to_local_map);
+      DownsampleNdtInput(ToPclCloud(to_local_map));
 
   NdtD2D ndt_d2d(ndt_d2d_config_);
   ndt_d2d.SetInputTarget(to_ndt_cloud);
