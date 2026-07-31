@@ -13,6 +13,7 @@
 #include <opencv2/imgcodecs.hpp>
 
 #include "mapping/common/local_data_reader.h"
+#include "mapping/common/pose3d.h"
 #include "mapping/lidar_topdown/lidar_lossless_map_node.h"
 #include "mapping/mapping_utils/stitch_utils.h"
 #include "mapping/protos/frame.pb.h"
@@ -29,6 +30,8 @@ DEFINE_string(aggregation_mode, "mean",
 namespace adlabel {
 namespace mapping {
 namespace {
+
+constexpr double kTrajectoryMarginMeters = 30.0;
 
 LidarLosslessMapNode::IntensityAggregationMode ParseAggregationMode(
     const std::string& mode) {
@@ -82,8 +85,12 @@ int Run() {
       LOG(WARNING) << "skip frame without cloud_uri: " << frame.fid();
       continue;
     }
-    if (!frame.has_lio_pose_3d()) {
-      LOG(WARNING) << "skip frame without lio_pose_3d: " << frame.fid();
+    if (!frame.has_refined_pose_3d()) {
+      LOG(WARNING) << "skip frame without refined_pose_3d: " << frame.fid();
+      continue;
+    }
+    if (!frame.has_lidar_nn_uri() || frame.lidar_nn_uri().empty()) {
+      LOG(WARNING) << "skip frame without lidar nn uri" << frame.fid();
       continue;
     }
     if (!frame.has_sensor_to_imu_extrinsic()) {
@@ -105,36 +112,21 @@ int Run() {
   double max_x = std::numeric_limits<double>::lowest();
   double min_y = std::numeric_limits<double>::max();
   double max_y = std::numeric_limits<double>::lowest();
-  size_t bounds_point_count = 0;
-  Eigen::Affine3d T_first_imu_utm = Eigen::Affine3d::Identity();
-  bool has_first_pose = false;
+  const Eigen::Affine3d T_first_imu_ecef =
+      Pose3D(local_frames.front().refined_pose_3d()).GetAffine3D().inverse();
   for (const Frame& frame : local_frames) {
-    FrameData lidar_frame_data;
-    if (!GenerateLidarFrameData(frame, &lidar_frame_data, data_reader)) {
-      LOG(ERROR) << "failed to generate lidar frame data for bounds: "
-                 << frame.fid();
-      continue;
-    }
-
-    if (!has_first_pose) {
-      T_first_imu_utm = lidar_frame_data.pose_utm.inverse();
-      has_first_pose = true;
-    }
-    const Eigen::Affine3d T_first_imu_lidar =
-        T_first_imu_utm * lidar_frame_data.pose_utm *
-        lidar_frame_data.transform_from_sensor_to_imu;
-    for (const auto& point : lidar_frame_data.raw_cloud->points) {
-      const Eigen::Vector3d p_first_imu =
-          T_first_imu_lidar * Eigen::Vector3d(point.x, point.y, point.z);
-      min_x = std::min(min_x, p_first_imu.x());
-      max_x = std::max(max_x, p_first_imu.x());
-      min_y = std::min(min_y, p_first_imu.y());
-      max_y = std::max(max_y, p_first_imu.y());
-      ++bounds_point_count;
-    }
+    const Eigen::Affine3d T_first_imu_current_imu =
+        T_first_imu_ecef * Pose3D(frame.refined_pose_3d()).GetAffine3D();
+    const Eigen::Vector3d& position = T_first_imu_current_imu.translation();
+    min_x = std::min(min_x, position.x());
+    max_x = std::max(max_x, position.x());
+    min_y = std::min(min_y, position.y());
+    max_y = std::max(max_y, position.y());
   }
-  CHECK_GT(bounds_point_count, static_cast<size_t>(0))
-      << "no lidar points available for bounds";
+  min_x -= kTrajectoryMarginMeters;
+  max_x += kTrajectoryMarginMeters;
+  min_y -= kTrajectoryMarginMeters;
+  max_y += kTrajectoryMarginMeters;
 
   GridFrame grid_frame;
   grid_frame.resolution = FLAGS_resolution;
@@ -145,6 +137,10 @@ int Run() {
       std::max(1u, static_cast<unsigned int>(
                        std::ceil((max_y - min_y) / FLAGS_resolution) + 1.0));
   grid_frame.top_left_corner = {min_x, max_y};
+  LOG(INFO) << "trajectory bounds with " << kTrajectoryMarginMeters
+            << "m margin: x=[" << min_x << ", " << max_x << "], y=[" << min_y
+            << ", " << max_y << "], image=" << grid_frame.cols << "x"
+            << grid_frame.rows;
 
   LidarLosslessMapNode node;
   node.Init(grid_frame,
@@ -160,7 +156,7 @@ int Run() {
     }
 
     const Eigen::Affine3d T_first_imu_lidar =
-        T_first_imu_utm * lidar_frame_data.pose_utm *
+        T_first_imu_ecef * lidar_frame_data.pose_ecef *
         lidar_frame_data.transform_from_sensor_to_imu;
     for (const auto& point : lidar_frame_data.ground_cloud->points) {
       const Eigen::Vector3d p_first_imu =

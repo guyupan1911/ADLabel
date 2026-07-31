@@ -20,6 +20,22 @@ cc_binary(
 )
 
 cc_binary(
+    name = "color_lidar_nn_cli",
+    srcs = [
+        "color_lidar_nn_cli.cc",
+    ],
+    deps = [
+        "//mapping/common:file",
+        "//mapping/common:local_data_reader",
+        "//mapping/common:pcl_types",
+        "//mapping/protos:frame_cc_proto",
+        "@system_libs//:gflags",
+        "@system_libs//:glog",
+        "@system_libs//:pcl",
+    ],
+)
+
+cc_binary(
     name = "lidar_topdown_stitcher_cli",
     srcs = [
       "lidar_topdown_stitcher_cli.cc",

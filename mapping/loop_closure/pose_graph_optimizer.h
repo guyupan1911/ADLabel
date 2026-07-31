@@ -56,7 +56,7 @@ class PoseGraphOptimizer {
   }
 
  private:
-  static constexpr double kPriorTranslationSigmaM = 20;
+  static constexpr double kPriorTranslationSigmaM = 100;
   static constexpr double kBetweenTranslationSigmaM = 0.1;
   static constexpr double kBetweenRotationSigmaRad = 0.01;
   static constexpr double kLoopClosureTranslationSigmaM = 0.1;

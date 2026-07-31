@@ -17,14 +17,14 @@ uint16_t GetRescaledAltitude(float alt, float min_alt, float max_alt) {
   return static_cast<uint16_t>(1u + static_cast<unsigned>(clamped * 65534.f));
 }
 
-unsigned char ApplyIntensityMapping(
-    float intensity, LidarLosslessMapNode::IntensityMappingMode mode) {
+float ApplyIntensityMapping(float intensity,
+                            LidarLosslessMapNode::IntensityMappingMode mode) {
   if (mode == LidarLosslessMapNode::IntensityMappingMode::kPassThrough) {
-    return static_cast<unsigned char>(intensity);
+    return intensity;
   }
   if (intensity <= 0.0f) return 0;
   const float val = std::log2(intensity) * 32.0f;
-  return static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, val)));
+  return std::max(0.0f, std::min(255.0f, val));
 }
 
 }  // namespace
@@ -59,10 +59,12 @@ bool LidarLosslessMapNode::SetValue(const Eigen::Vector3d& world_xyz,
   }
 
   LosslessMapCell& cell = matrix_->GetOrCreate(row, col);
+  const float mapped_intensity =
+      ApplyIntensityMapping(static_cast<float>(intensity), intensity_mapping_);
   if (intensity_aggregation_ == IntensityAggregationMode::kMean) {
-    cell.AddSampleMean(static_cast<float>(world_xyz.z()), intensity);
+    cell.AddSampleMean(static_cast<float>(world_xyz.z()), mapped_intensity);
   } else {
-    cell.AddSampleMax(static_cast<float>(world_xyz.z()), intensity);
+    cell.AddSampleMax(static_cast<float>(world_xyz.z()), mapped_intensity);
   }
   return true;
 }
@@ -75,12 +77,13 @@ void LidarLosslessMapNode::GetIntensityImage(cv::Mat* image,
       [&](unsigned int r, unsigned int c, const LosslessMapCell& cell) {
         if (cell.GetCount() < min_samples) return;
         image->at<unsigned char>(static_cast<int>(r), static_cast<int>(c)) =
-            ApplyIntensityMapping(cell.intensity, intensity_mapping_);
+            static_cast<unsigned char>(
+                std::max(0.0f, std::min(255.0f, cell.intensity)));
       });
 
-  cv::normalize(*image, *image, 0, 255, cv::NORM_MINMAX);
-  const cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
-  clahe->apply(*image, *image);
+  // cv::normalize(*image, *image, 0, 255, cv::NORM_MINMAX);
+  // const cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
+  // clahe->apply(*image, *image);
 }
 
 void LidarLosslessMapNode::GetAltitudeImage(cv::Mat* image,
