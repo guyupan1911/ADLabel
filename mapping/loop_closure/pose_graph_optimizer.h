@@ -61,6 +61,7 @@ class PoseGraphOptimizer {
   static constexpr double kBetweenRotationSigmaRad = 0.01;
   static constexpr double kLoopClosureTranslationSigmaM = 0.1;
   static constexpr double kLoopClosureRotationSigmaRad = 0.01;
+  static constexpr double kMinLoopClosureInlierRatio = 0.7;
 
   void BuildProblem();
   PoseGraphResidualSummary ComputeResidualSummary(

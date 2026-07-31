@@ -158,6 +158,9 @@ void PoseGraphOptimizer::BuildProblem() {
     }
 
     for (const MatchedFrame& matched_frame : frame.matched_frames()) {
+      if (matched_frame.inlier_ratio() < kMinLoopClosureInlierRatio) {
+        continue;
+      }
       if (!matched_frame.has_frame_id() || matched_frame.frame_id().empty() ||
           matched_frame.frame_id() == from_id ||
           !matched_frame.has_relative_pose()) {
@@ -260,6 +263,9 @@ PoseGraphResidualSummary PoseGraphOptimizer::ComputeResidualSummary(
     }
 
     for (const MatchedFrame& matched_frame : frame.matched_frames()) {
+      if (matched_frame.inlier_ratio() < kMinLoopClosureInlierRatio) {
+        continue;
+      }
       if (!matched_frame.has_frame_id() || matched_frame.frame_id().empty() ||
           matched_frame.frame_id() == from_id ||
           !matched_frame.has_relative_pose()) {
