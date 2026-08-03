@@ -23,9 +23,17 @@ fi
 mkdir -p "${OUT_DIR}"
 
 if python3 -m grpc_tools.protoc --version >/dev/null 2>&1; then
-  python3 -m grpc_tools.protoc -I. --python_out="${OUT_DIR}" "${PROTO_FILES[@]}"
+  python3 -m grpc_tools.protoc \
+    --experimental_allow_proto3_optional \
+    -I. \
+    --python_out="${OUT_DIR}" \
+    "${PROTO_FILES[@]}"
 elif command -v protoc >/dev/null 2>&1; then
-  protoc -I. --python_out="${OUT_DIR}" "${PROTO_FILES[@]}"
+  protoc \
+    --experimental_allow_proto3_optional \
+    -I. \
+    --python_out="${OUT_DIR}" \
+    "${PROTO_FILES[@]}"
 else
   cat >&2 <<'EOF'
 Neither grpc_tools.protoc nor protoc was found.
