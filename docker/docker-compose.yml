@@ -20,6 +20,7 @@ services:
     volumes:
       - ../:/workspace/ADLabel
       - /team/shared:/team/shared
+      - /home/guyu/data/plus_bev:/home/guyu/data/plus_bev
 
     # host networking simplifies local debugging (gRPC, debuggers, future ROS replay).
     network_mode: host

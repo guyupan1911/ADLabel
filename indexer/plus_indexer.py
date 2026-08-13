@@ -128,7 +128,7 @@ def interpolate_pose(left, right, timestamp_ns):
     )
 
 
-def load_ecef_trajectory(path):
+def load_pose_trajectory(path):
     samples = []
     with path.open("r", encoding="utf-8") as input_file:
         for line_no, line in enumerate(input_file, start=1):
@@ -193,14 +193,21 @@ def copy_pose(pose, pose_message):
 
 def process_dump_root(dump_root):
     meta_path = dump_root / "metadata" / "lidar" / "lidar_plusai_unified.meta"
-    trajectory_path = dump_root / "offline_pose" / "gtsam_optim_rst_ecef.txt"
+    refined_trajectory_path = dump_root / "offline_pose" / "gtsam_optim_rst_ecef.txt"
+    lio_trajectory_path = (
+        dump_root / "offline_pose" / "v2_T_W_V_mapping_pose_in_rel.txt"
+    )
     cloud_dir = dump_root / "sensor_data" / "lidar" / "lidar_plusai_unified_compensated"
     lidar_nn_dir = dump_root / "pcd_segmentation" / "lidar_plusai_unified_compensated"
 
     if not meta_path.is_file():
         raise RuntimeError(f"lidar metadata file does not exist: {meta_path}")
-    if not trajectory_path.is_file():
-        raise RuntimeError(f"ECEF trajectory file does not exist: {trajectory_path}")
+    if not refined_trajectory_path.is_file():
+        raise RuntimeError(
+            f"ECEF trajectory file does not exist: {refined_trajectory_path}"
+        )
+    if not lio_trajectory_path.is_file():
+        raise RuntimeError(f"LIO trajectory file does not exist: {lio_trajectory_path}")
 
     if not cloud_dir.is_dir():
         raise RuntimeError(f"cloud directory does not exist: {cloud_dir}")
@@ -208,7 +215,8 @@ def process_dump_root(dump_root):
         raise RuntimeError(f"lidar nn directory does not exist: {lidar_nn_dir}")
 
     local_data_reader_root = dump_root.parent
-    timeline = load_ecef_trajectory(trajectory_path)
+    refined_timeline = load_pose_trajectory(refined_trajectory_path)
+    lio_timeline = load_pose_trajectory(lio_trajectory_path)
     cloud_files = {}
     for path in cloud_dir.iterdir():
         if path.is_file() and path.suffix == ".pcd" and path.stem.isdigit():
@@ -223,8 +231,10 @@ def process_dump_root(dump_root):
         raise RuntimeError(f"metadata has no frames: {meta_path}")
 
     sensor_counts = Counter()
-    pose_updated = 0
-    pose_skipped = 0
+    refined_pose_updated = 0
+    refined_pose_skipped = 0
+    lio_pose_updated = 0
+    lio_pose_skipped = 0
     cloud_updated = 0
     cloud_missing = 0
     lidar_nn_updated = 0
@@ -251,20 +261,27 @@ def process_dump_root(dump_root):
             frame.lidar_nn_uri = lidar_nn_path.relative_to(local_data_reader_root).as_posix()
             lidar_nn_updated += 1
 
-        pose = timeline.interpolate(frame.timestamp_ns)
-        if pose is None:
-            frame.cumulative_distance = cumulative_distance
-            pose_skipped += 1
-            continue
-        if previous_pose is not None:
-            dx = pose.x - previous_pose.x
-            dy = pose.y - previous_pose.y
-            dz = pose.z - previous_pose.z
-            cumulative_distance += math.sqrt(dx * dx + dy * dy + dz * dz)
+        refined_pose = refined_timeline.interpolate(frame.timestamp_ns)
+        if refined_pose is None:
+            refined_pose_skipped += 1
+        else:
+            if previous_pose is not None:
+                dx = refined_pose.x - previous_pose.x
+                dy = refined_pose.y - previous_pose.y
+                dz = refined_pose.z - previous_pose.z
+                cumulative_distance += math.sqrt(dx * dx + dy * dy + dz * dz)
+            copy_pose(refined_pose, frame.refined_pose_3d)
+            previous_pose = refined_pose
+            refined_pose_updated += 1
         frame.cumulative_distance = cumulative_distance
-        copy_pose(pose, frame.refined_pose_3d)
-        previous_pose = pose
-        pose_updated += 1
+
+        lio_pose = lio_timeline.interpolate(frame.timestamp_ns)
+        if lio_pose is None:
+            frame.ClearField("lio_pose_3d")
+            lio_pose_skipped += 1
+        else:
+            copy_pose(lio_pose, frame.lio_pose_3d)
+            lio_pose_updated += 1
 
     write_meta_file(meta_path, frames)
 
@@ -274,8 +291,12 @@ def process_dump_root(dump_root):
     print(f"cloud_uri: updated {cloud_updated}/{len(frames)}, missing {cloud_missing}")
     print(f"lidar_nn_uri: updated {lidar_nn_updated}/{len(frames)}, missing {lidar_nn_missing}")
     print(
-        f"refined_pose_3d: updated {pose_updated}/{len(frames)}, "
-        f"skipped {pose_skipped} outside trajectory range"
+        f"refined_pose_3d: updated {refined_pose_updated}/{len(frames)}, "
+        f"skipped {refined_pose_skipped} outside trajectory range"
+    )
+    print(
+        f"lio_pose_3d: updated {lio_pose_updated}/{len(frames)}, "
+        f"skipped {lio_pose_skipped} outside trajectory range"
     )
     print(f"cumulative_distance: final {cumulative_distance:.3f} m")
     print(f"wrote metadata: {meta_path}")
@@ -283,7 +304,10 @@ def process_dump_root(dump_root):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Fill lidar_plusai_unified.meta Frame.refined_pose_3d from offline_pose/gtsam_optim_rst_ecef.txt."
+        description=(
+            "Fill lidar_plusai_unified.meta Frame.refined_pose_3d and "
+            "Frame.lio_pose_3d from trajectories under offline_pose."
+        )
     )
     parser.add_argument("dump_root", type=Path, help="Bag dump root directory")
     return parser.parse_args()

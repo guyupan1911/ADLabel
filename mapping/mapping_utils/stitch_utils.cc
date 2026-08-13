@@ -13,8 +13,8 @@ namespace adlabel {
 namespace mapping {
 namespace {
 
-constexpr double kMinDistanceFromOriginM = 9.0;
-constexpr double kMaxDistanceFromOriginM = 120.0;
+constexpr double kMinDistanceFromOriginM = 6.0;
+constexpr double kMaxDistanceFromOriginM = 80.0;
 constexpr double kMinDistanceFromOriginSquaredM2 =
     kMinDistanceFromOriginM * kMinDistanceFromOriginM;
 constexpr double kMaxDistanceFromOriginSquaredM2 =

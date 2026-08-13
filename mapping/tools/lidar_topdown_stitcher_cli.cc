@@ -24,6 +24,9 @@ DEFINE_string(output_dir, "", "directory to save topdown intensity image");
 DEFINE_double(resolution, 0.05, "topdown image resolution, meters per pixel");
 DEFINE_int32(max_frames, 0,
              "maximum number of initial valid frames to process; 0 means all");
+DEFINE_bool(use_lio, false,
+            "use lio_pose_3d/FrameData::pose_utm instead of "
+            "refined_pose_3d/FrameData::pose_ecef");
 DEFINE_string(aggregation_mode, "mean",
               "intensity aggregation mode for stitching: mean or max");
 
@@ -85,7 +88,11 @@ int Run() {
       LOG(WARNING) << "skip frame without cloud_uri: " << frame.fid();
       continue;
     }
-    if (!frame.has_refined_pose_3d()) {
+    if (FLAGS_use_lio && !frame.has_lio_pose_3d()) {
+      LOG(WARNING) << "skip frame without lio_pose_3d: " << frame.fid();
+      continue;
+    }
+    if (!FLAGS_use_lio && !frame.has_refined_pose_3d()) {
       LOG(WARNING) << "skip frame without refined_pose_3d: " << frame.fid();
       continue;
     }
@@ -106,17 +113,23 @@ int Run() {
 
   LOG(INFO) << "loaded " << frames.size()
             << " lidar frames, processable=" << local_frames.size()
-            << ", origin timestamp=" << local_frames.front().timestamp_ns();
+            << ", origin timestamp=" << local_frames.front().timestamp_ns()
+            << ", pose_source=" << (FLAGS_use_lio ? "lio" : "ecef");
 
   double min_x = std::numeric_limits<double>::max();
   double max_x = std::numeric_limits<double>::lowest();
   double min_y = std::numeric_limits<double>::max();
   double max_y = std::numeric_limits<double>::lowest();
-  const Eigen::Affine3d T_first_imu_ecef =
-      Pose3D(local_frames.front().refined_pose_3d()).GetAffine3D().inverse();
+  const Eigen::Affine3d T_first_imu_world =
+      Pose3D(FLAGS_use_lio ? local_frames.front().lio_pose_3d()
+                           : local_frames.front().refined_pose_3d())
+          .GetAffine3D()
+          .inverse();
   for (const Frame& frame : local_frames) {
     const Eigen::Affine3d T_first_imu_current_imu =
-        T_first_imu_ecef * Pose3D(frame.refined_pose_3d()).GetAffine3D();
+        T_first_imu_world *
+        Pose3D(FLAGS_use_lio ? frame.lio_pose_3d() : frame.refined_pose_3d())
+            .GetAffine3D();
     const Eigen::Vector3d& position = T_first_imu_current_imu.translation();
     min_x = std::min(min_x, position.x());
     max_x = std::max(max_x, position.x());
@@ -155,8 +168,10 @@ int Run() {
       continue;
     }
 
+    const Eigen::Affine3d& T_world_imu =
+        FLAGS_use_lio ? lidar_frame_data.pose_utm : lidar_frame_data.pose_ecef;
     const Eigen::Affine3d T_first_imu_lidar =
-        T_first_imu_ecef * lidar_frame_data.pose_ecef *
+        T_first_imu_world * T_world_imu *
         lidar_frame_data.transform_from_sensor_to_imu;
     for (const auto& point : lidar_frame_data.ground_cloud->points) {
       const Eigen::Vector3d p_first_imu =
