@@ -3,6 +3,20 @@ package(default_visibility = ["//visibility:public"])
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
+  name = "geographic_transform",
+  hdrs = [
+    "geographic_transform.h",
+  ],
+  srcs = [
+    "geographic_transform.cc",
+  ],
+  deps = [
+    "@system_libs//:eigen",
+    "@system_libs//:geographiclib",
+  ],
+)
+
+cc_library(
   name = "frame_data",
   hdrs = [
     "frame_data.h",
